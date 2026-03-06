@@ -1,0 +1,53 @@
+/*
+ * Copyright (c) 2025 Silabs
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <zephyr/dt-bindings/mipi_dbi/mipi_dbi.h>
+
+
+/ {
+    leds {
+        status = "disabled";
+    };
+
+	chosen {
+		zephyr,display = &st7796_st7796_dlc0347bwp00sf_320x480;
+
+	};
+
+    mipi_dbi_st7796_dlc0347bwp00sf_320x480 {
+		compatible = "zephyr,mipi-dbi-spi";
+		spi-dev = <&eusart1>;
+		dc-gpios = < &gpioa 5 GPIO_ACTIVE_HIGH>; /* EXP_HEADER7 */
+		reset-gpios = < &gpioa 6 GPIO_ACTIVE_LOW>; /* EXP_HEADER11 */
+		write-only;
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		st7796_st7796_dlc0347bwp00sf_320x480: st7796@2 {
+			compatible = "sitronix,st7796s";
+			reg = <0x2>;
+			mipi-max-frequency = <DT_FREQ_M(10)>;
+   			mipi-mode = "MIPI_DBI_MODE_SPI_4WIRE";
+            height = <480>;
+			width = <320>;
+			/* madctl = <0x68>; // 0x36 0x08 0x68 0xC8 0xA8*/
+
+	        pgc = /bits/ 8 <0x0F 0x1F 0x1C 0x0C 0x0F 0x08 0x48 0x98 0x37 0x0A 0x13 0x04 0x11 0x0D>;
+			ngc = /bits/ 8 <0x0F 0x32 0x2E 0x0B 0x0D 0x05 0x47 0x75 0x37 0x06 0x10 0x03 0x24 0x20>;
+		};
+	};
+};
+
+/delete-node/ &ls0xx_ls013b7dh03;
+
+&eusart1 {
+	cs-gpios = <&gpioc 8 GPIO_ACTIVE_HIGH>, <&gpioc 4 GPIO_ACTIVE_LOW>, <&gpioc 0 GPIO_ACTIVE_LOW>; /* EXP_HEADER10 */
+    status = "okay";
+};
+
+&usart0 {
+	current-speed = <921600>;
+};
