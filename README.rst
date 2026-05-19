@@ -9,28 +9,30 @@ Zephyr demo with SPI display and BLE mouse
 Other info
 ********
 
-It works on siwx917_dk2605a and xg24_dk2601b devices with an 2026 January version. Earlier and later (other not yet released) versions can have incompatibility issues. (SPI, display driver and Wiseconnect SDK)
+It works on siwx917_dk2605a and xg24_dk2601b devices on most recent version of upstream.
 
 On upstream::
 
-   git checkout 24dc151e5d6650129b5b7c237998a204c39473e1
+   git checkout main
+   git pull
    west update
    west blobs fetch hal_silabs
 
-917 NWP:
+917 NWP firmware
 
-* https://github.com/SiliconLabs/wiseconnect/tree/master/connectivity_firmware/standard
-* and take SiWG917-B.2.14.5.2.0.7.rps
+* take SiWG917-B.2.15.5.2.0.2.rps (or similar)
+* from https://github.com/SiliconLabs/wiseconnect/tree/master/connectivity_firmware/standard
+* or from zephyrproject/modules/hal/silabs/zephyr/blobs/wiseconnect/connectivity_firmware/standard/SiWG917-B.2.15.5.2.0.2.rps
 
 ::
 
    west build -p -b siwx917_dk2605a ./app/display/ -d ./build_917/
-   west flash -d ./build_917/
+   west flash -d ./build_917/ --dev-id 446000408
 
 ::
 
    west build -p -b xg24_dk2601b ./app/display/ -d ./build_efr/
-   west flash -d ./build_efr/
+   west flash -d ./build_efr/ --id 440333926
 
 
 Limits, known bugs:

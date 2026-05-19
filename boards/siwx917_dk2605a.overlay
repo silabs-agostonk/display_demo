@@ -64,14 +64,14 @@
 	pinctrl-names = "default";
 	clock-frequency = <DT_FREQ_M(40)>;
 
-	dmas = <&gpdma 0 11>, <&gpdma 1 10>;
-	dma-names = "tx", "rx";
+	//dmas = <&gpdma 0 11>, <&gpdma 1 10>;
+	//dma-names = "tx", "rx";
 
 	status = "okay";
 };
 
 &gpdma {
-	status = "okay";
+	status = "disabled";
 };
 
 

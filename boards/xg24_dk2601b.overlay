@@ -14,10 +14,10 @@
 	regulator-boot-off;
 };
 
+/*
 /delete-node/ &veml6035;
 /delete-node/ &si7210;
-/delete-node/ &si7021;
-
+*/
 
 /* Add SPI display */
 

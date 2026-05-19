@@ -38,6 +38,7 @@ static uint16_t hids_ctrl_point_handle;
 static uint16_t hids_protocol_mode_handle;
 
 int bt_connection_hids_ctrl_point_write(uint8_t val);
+void bt_connection_enable_pairing_mode(bool enable);
 
 static const bt_security_t target_sec = BT_SECURITY_L2;
 static bool discovery_started;

@@ -560,17 +560,21 @@ int main(void) {
 
 
 	// Get display capabilities for debug
-	//display_get_capabilities(display_dev, &capabilities);
-	//LOG_INF("Display capabilities:");
-	//LOG_INF("Resolution: %dx%d", capabilities.x_resolution, capabilities.y_resolution);
-	//LOG_INF("Supported formats: %04x", capabilities.supported_pixel_formats);
-	//LOG_INF("Current pixel format: %04x", capabilities.current_pixel_format);
+/* 	display_get_capabilities(display_dev, &capabilities);
+	LOG_INF("Display capabilities:");
+	LOG_INF("Resolution: %dx%d", capabilities.x_resolution, capabilities.y_resolution);
+	LOG_INF("Supported formats: %04x", capabilities.supported_pixel_formats);
+	LOG_INF("Current pixel format: %04x", capabilities.current_pixel_format); */
 
-	display_blanking_on(display_dev);
+	LOG_INF("01");
+	//display_blanking_on(display_dev);
+	LOG_INF("02");
 
 
 	k_msleep(500);
+	LOG_INF("03");
 	bt_connection_enable();
+	LOG_INF("04");
 
 	while (1){
 
