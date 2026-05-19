@@ -138,6 +138,7 @@ Graphics
 Some words about the app drawings.
 
 The maze patterns are stored in src/bg_*.c files, generated in this way:
+
 - go to page: https://codebox.net/pages/maze-generator/online
 - save the generated picture
 - scale and edit in Gimp to fit the display
@@ -146,6 +147,7 @@ The maze patterns are stored in src/bg_*.c files, generated in this way:
 - Gimp creates static variable (has to be changed global)
 
 There is not enough RAM to store the complete frame buffer so drawing follows these steps:
+
 - loads the complete image from flash and writes to the display (only once)
 - there is a 1bit/pixel buffer in RAM to store mouse movement line (canvas)
 - if the mouse moves, the round marker and the surrondings is updated with one write transaction:
@@ -195,6 +197,6 @@ The buffer wich updates the screen looks like this:
 
 - x is the current mouse position; all other part is calculated relative to this
 - marker_draw_buffer_border:
-  - used used to check as well the touching logic (for walls and green finish line)
+    - used used to check as well the touching logic (for walls and green finish line)
 - marker_draw_buffer_segment_xy and marker_draw_buffer_segment_dimensions:
-  - rectangles to cover a circle
+    - rectangles to cover a circle
