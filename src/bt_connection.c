@@ -98,6 +98,37 @@ struct ble_event {
 	};
 };
 
+struct ble_hid_ctx {
+	struct bt_conn *conn;
+
+	struct bt_uuid_16 discover_uuid;
+	struct bt_gatt_discover_params discover_params;
+	struct bt_gatt_subscribe_params subscribe_params;
+
+	uint16_t hids_start_handle;
+	uint16_t hids_end_handle;
+	uint16_t hids_ctrl_point_handle;
+	uint16_t hids_protocol_mode_handle;
+
+	enum hids_discovery_step hids_discovery_step;
+
+	bool discovery_started;
+
+	atomic_t scanning;
+	atomic_t connecting;
+	atomic_t discovering;
+
+	bool have_bond;
+	bool pairing_allowed;
+
+	struct k_work_delayable pairing_mode_timeout_work;
+
+	bt_addr_le_t preferred_addr;
+	bool have_preferred;
+
+	struct k_work_delayable connect_fallback_scan_work;
+};
+
 K_MSGQ_DEFINE(ble_event_queue,
 	      sizeof(struct ble_event),
 	      BLE_EVENT_QUEUE_LEN,
@@ -121,34 +152,13 @@ static int start_hids_discovery_step(struct bt_conn *conn,
 static void refresh_bond_state(void);
 static void set_pairing_mode_internal(bool enable);
 
-static struct bt_conn *default_conn;
-static struct bt_uuid_16 discover_uuid = BT_UUID_INIT_16(0);
-static struct bt_gatt_discover_params discover_params;
-static struct bt_gatt_subscribe_params subscribe_params;
-
-static uint16_t hids_start_handle;
-static uint16_t hids_end_handle;
-static uint16_t hids_ctrl_point_handle;
-static uint16_t hids_protocol_mode_handle;
-
-static enum hids_discovery_step hids_discovery_step =
-	HIDS_DISCOVERY_STEP_IDLE;
+static struct ble_hid_ctx ble_ctx = {
+	.discover_uuid = BT_UUID_INIT_16(0),
+	.hids_discovery_step = HIDS_DISCOVERY_STEP_IDLE,
+};
 
 static const bt_security_t target_sec = BT_SECURITY_L2;
 
-static bool discovery_started;
-static atomic_t scanning;
-static atomic_t connecting;
-static atomic_t discovering;
-
-static bool have_bond;
-static bool pairing_allowed;
-
-static struct k_work_delayable pairing_mode_timeout_work;
-
-static bt_addr_le_t preferred_addr;
-static bool have_preferred;
-static struct k_work_delayable connect_fallback_scan_work;
 
 static const struct bt_conn_le_create_param create_param_coded =
 	BT_CONN_LE_CREATE_PARAM_INIT(BT_CONN_LE_OPT_CODED,
