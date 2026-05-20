@@ -23,6 +23,7 @@ LOG_MODULE_REGISTER(bt_connection, LOG_LEVEL_INF);
 #include "app_types.h"
 #include "ble_hid_app.h"
 #include "hid_mouse.h"
+#include "app_input.h"
 
 
 
@@ -79,7 +80,6 @@ uint64_t total_rx_count; /* This value is exposed to test code */
 extern volatile size_t pointer_x;
 extern volatile size_t pointer_y;
 
-extern struct k_msgq mouse_data_queue;
 
 static uint8_t notify_func(struct bt_conn *conn,
 			   struct bt_gatt_subscribe_params *params,
@@ -119,13 +119,12 @@ static uint8_t notify_func(struct bt_conn *conn,
 	       mouse_data_new_element.dx,
 	       mouse_data_new_element.dy);
 
-	/* Passing data into queue */
-	while (k_msgq_put(&mouse_data_queue,
-			  &mouse_data_new_element,
-			  K_NO_WAIT) != 0) {
-		/* Message queue is full: purge old data and try again. */
-		k_msgq_purge(&mouse_data_queue);
-	}
+    /* Passing data into app input queue */
+    err = app_input_submit_mouse(&mouse_data_new_element);
+    if (err) {
+        printk("Mouse input submit failed: %d\n", err);
+        return BT_GATT_ITER_CONTINUE;
+    }
 
 	total_rx_count++;
 

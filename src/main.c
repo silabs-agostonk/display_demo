@@ -20,7 +20,7 @@ LOG_MODULE_REGISTER(main, LOG_LEVEL_INF);
 
 #include "app_types.h"
 #include "ble_hid_app.h"
-
+#include "app_input.h"
 
 
 #define RGB_TO_RGB565(r,g,b) ( (uint16_t)( \
@@ -54,9 +54,6 @@ LOG_MODULE_REGISTER(main, LOG_LEVEL_INF);
 #define DISPLAY_H 320
 
 #define BYTES_PER_PIXEL 2
-
-char mouse_data_queue_buffer[10 * sizeof(struct mouse_data_element)];
-struct k_msgq mouse_data_queue;
 
 uint8_t canvas_bitmap [(DISPLAY_W * DISPLAY_H) / 8] = {0};
 
@@ -554,8 +551,8 @@ int main(void) {
 	}
 	LOG_INF("Display demo for %s", display_dev->name);
 
-	// Initialize queue to receive data from BLE task to main task
-	k_msgq_init(&mouse_data_queue, mouse_data_queue_buffer, sizeof(struct mouse_data_element), 10);
+	// Initialize input queue to receive data from BLE task to main task
+	app_input_init();
 
 
 	// Get display capabilities for debug
@@ -596,15 +593,14 @@ int main(void) {
 			marker_pos_actual.y = 160;
 			display_marker_draw(display_dev, marker_pos_actual.x, marker_pos_actual.y, marker_pos_actual.x, marker_pos_actual.y);
 
-
-			k_msgq_purge(&mouse_data_queue);
+			app_input_flush();
 
 			app_state = run_game;
 			break;
 
 			case run_game:
 
-			if ( k_msgq_get(&mouse_data_queue, &mouse_data_new_element, K_FOREVER) == 0){
+			if (app_input_get_mouse(&mouse_data_new_element, K_FOREVER) == 0){
 
 
 				if (mouse_data_new_element.left_button){
@@ -657,7 +653,7 @@ int main(void) {
 
 					if(touched_color != bg_color){
 						// it would be okay to stop here, but try to move only one axes
-						k_msgq_purge(&mouse_data_queue);
+						app_input_flush();
 						
 						// move only by X
 						if (!display_is_the_marker_touching_pixmap(x0, marker_pos_actual.y, current_background)){

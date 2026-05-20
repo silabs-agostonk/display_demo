@@ -61,7 +61,7 @@ int hid_mouse_decode_logitech_m196(const uint8_t *data,
 	mouse_data->dx = dx;
 	mouse_data->dy = dy;
 
-	ARG_UNUSED(sign_extend_12);
+	//ARG_UNUSED(sign_extend_12);
 
 	return 0;
 }
