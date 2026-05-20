@@ -47,6 +47,16 @@ enum ble_event_type {
 	BLE_EVENT_PAIRING_COMPLETE,
 };
 
+enum hids_discovery_step {
+	HIDS_DISCOVERY_STEP_IDLE,
+	HIDS_DISCOVERY_STEP_SERVICE,
+	HIDS_DISCOVERY_STEP_REPORT_CHAR,
+	HIDS_DISCOVERY_STEP_REPORT_CCC,
+	HIDS_DISCOVERY_STEP_PROTOCOL_MODE,
+	HIDS_DISCOVERY_STEP_CTRL_POINT,
+	HIDS_DISCOVERY_STEP_DONE,
+};
+
 struct ble_event {
 	enum ble_event_type type;
 
@@ -106,6 +116,8 @@ static void start_scan(void);
 static void connect_to_addr(const bt_addr_le_t *addr);
 static void try_connect_preferred_or_scan(void);
 static void start_hids_discovery(struct bt_conn *conn);
+static int start_hids_discovery_step(struct bt_conn *conn,
+				     enum hids_discovery_step step);
 static void refresh_bond_state(void);
 static void set_pairing_mode_internal(bool enable);
 
@@ -118,6 +130,9 @@ static uint16_t hids_start_handle;
 static uint16_t hids_end_handle;
 static uint16_t hids_ctrl_point_handle;
 static uint16_t hids_protocol_mode_handle;
+
+static enum hids_discovery_step hids_discovery_step =
+	HIDS_DISCOVERY_STEP_IDLE;
 
 static const bt_security_t target_sec = BT_SECURITY_L2;
 
@@ -281,34 +296,31 @@ static uint8_t discover_func(struct bt_conn *conn,
 {
 	int err;
 
-	/* Discovery finished */
+	/* Discovery step finished without a matching attribute. */
 	if (!attr) {
-		printk("Discover complete\n");
+		printk("HIDS discovery step %d complete\n",
+		       hids_discovery_step);
+
 		discovery_started = false;
 		atomic_set(&discovering, 0);
+		hids_discovery_step = HIDS_DISCOVERY_STEP_IDLE;
 
-		/* Stop the discover procedure cleanly */
 		memset(params, 0, sizeof(*params));
+
 		return BT_GATT_ITER_STOP;
 	}
 
 	printk("[ATTRIBUTE] handle %u\n", attr->handle);
 
-	/* 1) Primary service discovery: HID service 0x1812 */
-	if (!bt_uuid_cmp(discover_params.uuid, BT_UUID_HIDS)) {
+	switch (hids_discovery_step) {
+	case HIDS_DISCOVERY_STEP_SERVICE: {
 		const struct bt_gatt_service_val *svc = attr->user_data;
 
 		hids_start_handle = attr->handle;
 		hids_end_handle = svc->end_handle;
 
-		/* Next: discover HID Report characteristic(s) within HID service */
-		memcpy(&discover_uuid, BT_UUID_HIDS_REPORT, sizeof(discover_uuid));
-		discover_params.uuid = &discover_uuid.uuid;
-		discover_params.start_handle = hids_start_handle + 1;
-		discover_params.end_handle = hids_end_handle;
-		discover_params.type = BT_GATT_DISCOVER_CHARACTERISTIC;
-
-		err = bt_gatt_discover(conn, &discover_params);
+		err = start_hids_discovery_step(conn,
+                        HIDS_DISCOVERY_STEP_REPORT_CHAR);
 		if (err) {
 			printk("Discover REPORT char failed (err %d)\n", err);
 		}
@@ -316,28 +328,19 @@ static uint8_t discover_func(struct bt_conn *conn,
 		return BT_GATT_ITER_STOP;
 	}
 
-	/* 2) Characteristic discovery: HID Report characteristic 0x2A4D */
-	if (!bt_uuid_cmp(discover_params.uuid, BT_UUID_HIDS_REPORT)) {
+	case HIDS_DISCOVERY_STEP_REPORT_CHAR:
 		subscribe_params.value_handle = bt_gatt_attr_value_handle(attr);
 
-		/* Next: find CCC descriptor (0x2902) in HID service range */
-		memcpy(&discover_uuid, BT_UUID_GATT_CCC, sizeof(discover_uuid));
-		discover_params.uuid = &discover_uuid.uuid;
-		discover_params.start_handle = attr->handle + 1;
-		discover_params.end_handle = hids_end_handle;
-		discover_params.type = BT_GATT_DISCOVER_DESCRIPTOR;
-
-		err = bt_gatt_discover(conn, &discover_params);
+		err = start_hids_discovery_step(conn,
+						HIDS_DISCOVERY_STEP_REPORT_CCC);
 		if (err) {
 			printk("Discover CCC descriptor failed (err %d)\n", err);
 		}
 
 		return BT_GATT_ITER_STOP;
-	}
 
-	/* 3) Descriptor discovery: CCC (0x2902) */
-	if (!bt_uuid_cmp(discover_params.uuid, BT_UUID_GATT_CCC)) {
-		/* Iterate until we actually hit the CCC attribute */
+	case HIDS_DISCOVERY_STEP_REPORT_CCC:
+		/* Iterate until we actually hit the CCC attribute. */
 		if (bt_uuid_cmp(attr->uuid, BT_UUID_GATT_CCC)) {
 			return BT_GATT_ITER_CONTINUE;
 		}
@@ -353,24 +356,15 @@ static uint8_t discover_func(struct bt_conn *conn,
 			printk("[SUBSCRIBED]\n");
 		}
 
-		/* Next: Protocol Mode characteristic */
-		memcpy(&discover_uuid, BT_UUID_HIDS_PROTOCOL_MODE,
-		       sizeof(discover_uuid));
-		discover_params.uuid = &discover_uuid.uuid;
-		discover_params.start_handle = hids_start_handle + 1;
-		discover_params.end_handle = hids_end_handle;
-		discover_params.type = BT_GATT_DISCOVER_CHARACTERISTIC;
-
-		err = bt_gatt_discover(conn, &discover_params);
+		err = start_hids_discovery_step(conn,
+						HIDS_DISCOVERY_STEP_PROTOCOL_MODE);
 		if (err) {
 			printk("Discover Protocol Mode failed (err %d)\n", err);
 		}
 
 		return BT_GATT_ITER_STOP;
-	}
 
-	/* 4) Characteristic discovery: Protocol Mode 0x2A4E */
-	if (!bt_uuid_cmp(discover_params.uuid, BT_UUID_HIDS_PROTOCOL_MODE)) {
+	case HIDS_DISCOVERY_STEP_PROTOCOL_MODE: {
 		uint8_t val = 0x01; /* Report Protocol */
 
 		hids_protocol_mode_handle = bt_gatt_attr_value_handle(attr);
@@ -384,15 +378,8 @@ static uint8_t discover_func(struct bt_conn *conn,
 			printk("Write Protocol Mode failed (err %d)\n", err);
 		}
 
-		/* Next: Control Point characteristic */
-		memcpy(&discover_uuid, BT_UUID_HIDS_CTRL_POINT,
-		       sizeof(discover_uuid));
-		discover_params.uuid = &discover_uuid.uuid;
-		discover_params.start_handle = hids_start_handle + 1;
-		discover_params.end_handle = hids_end_handle;
-		discover_params.type = BT_GATT_DISCOVER_CHARACTERISTIC;
-
-		err = bt_gatt_discover(conn, &discover_params);
+		err = start_hids_discovery_step(conn,
+						HIDS_DISCOVERY_STEP_CTRL_POINT);
 		if (err) {
 			printk("Discover Control Point failed (err %d)\n", err);
 		}
@@ -400,17 +387,99 @@ static uint8_t discover_func(struct bt_conn *conn,
 		return BT_GATT_ITER_STOP;
 	}
 
-	/* 5) Characteristic discovery: Control Point 0x2A4C */
-	if (!bt_uuid_cmp(discover_params.uuid, BT_UUID_HIDS_CTRL_POINT)) {
+	case HIDS_DISCOVERY_STEP_CTRL_POINT:
 		hids_ctrl_point_handle = bt_gatt_attr_value_handle(attr);
 
-		/* Optional: send wake */
+		/* Optional: send wake. */
 		(void)bt_connection_hids_ctrl_point_write(0x01);
 
+		hids_discovery_step = HIDS_DISCOVERY_STEP_DONE;
+		discovery_started = false;
+		atomic_set(&discovering, 0);
+
+		return BT_GATT_ITER_STOP;
+
+	default:
+		printk("Unexpected HIDS discovery step %d\n",
+		       hids_discovery_step);
 		return BT_GATT_ITER_STOP;
 	}
+}
 
-	return BT_GATT_ITER_CONTINUE;
+static int start_hids_discovery_step(struct bt_conn *conn,
+				     enum hids_discovery_step step)
+{
+	int err;
+
+	memset(&discover_params, 0, sizeof(discover_params));
+
+	discover_params.func = discover_func;
+
+	switch (step) {
+	case HIDS_DISCOVERY_STEP_SERVICE:
+		memcpy(&discover_uuid, BT_UUID_HIDS, sizeof(discover_uuid));
+
+		discover_params.uuid = &discover_uuid.uuid;
+		discover_params.start_handle = BT_ATT_FIRST_ATTRIBUTE_HANDLE;
+		discover_params.end_handle = BT_ATT_LAST_ATTRIBUTE_HANDLE;
+		discover_params.type = BT_GATT_DISCOVER_PRIMARY;
+		break;
+
+	case HIDS_DISCOVERY_STEP_REPORT_CHAR:
+		memcpy(&discover_uuid, BT_UUID_HIDS_REPORT,
+		       sizeof(discover_uuid));
+
+		discover_params.uuid = &discover_uuid.uuid;
+		discover_params.start_handle = hids_start_handle + 1;
+		discover_params.end_handle = hids_end_handle;
+		discover_params.type = BT_GATT_DISCOVER_CHARACTERISTIC;
+		break;
+
+	case HIDS_DISCOVERY_STEP_REPORT_CCC:
+		memcpy(&discover_uuid, BT_UUID_GATT_CCC,
+		       sizeof(discover_uuid));
+
+		discover_params.uuid = &discover_uuid.uuid;
+		discover_params.start_handle = subscribe_params.value_handle + 1;
+		discover_params.end_handle = hids_end_handle;
+		discover_params.type = BT_GATT_DISCOVER_DESCRIPTOR;
+		break;
+
+	case HIDS_DISCOVERY_STEP_PROTOCOL_MODE:
+		memcpy(&discover_uuid, BT_UUID_HIDS_PROTOCOL_MODE,
+		       sizeof(discover_uuid));
+
+		discover_params.uuid = &discover_uuid.uuid;
+		discover_params.start_handle = hids_start_handle + 1;
+		discover_params.end_handle = hids_end_handle;
+		discover_params.type = BT_GATT_DISCOVER_CHARACTERISTIC;
+		break;
+
+	case HIDS_DISCOVERY_STEP_CTRL_POINT:
+		memcpy(&discover_uuid, BT_UUID_HIDS_CTRL_POINT,
+		       sizeof(discover_uuid));
+
+		discover_params.uuid = &discover_uuid.uuid;
+		discover_params.start_handle = hids_start_handle + 1;
+		discover_params.end_handle = hids_end_handle;
+		discover_params.type = BT_GATT_DISCOVER_CHARACTERISTIC;
+		break;
+
+	default:
+		return -EINVAL;
+	}
+
+	hids_discovery_step = step;
+
+	err = bt_gatt_discover(conn, &discover_params);
+	if (err) {
+		printk("HIDS discovery step %d failed to start (err %d)\n",
+		       step,
+		       err);
+		hids_discovery_step = HIDS_DISCOVERY_STEP_IDLE;
+	}
+
+	return err;
 }
 
 static void bond_pick_first(const struct bt_bond_info *info, void *user_data)
@@ -682,23 +751,16 @@ static void start_hids_discovery(struct bt_conn *conn)
 	}
 
 	discovery_started = true;
+	hids_discovery_step = HIDS_DISCOVERY_STEP_IDLE;
 
-	memset(&discover_params, 0, sizeof(discover_params));
 	memset(&subscribe_params, 0, sizeof(subscribe_params));
 
-	memcpy(&discover_uuid, BT_UUID_HIDS, sizeof(discover_uuid));
-
-	discover_params.uuid = &discover_uuid.uuid;
-	discover_params.func = discover_func;
-	discover_params.start_handle = BT_ATT_FIRST_ATTRIBUTE_HANDLE;
-	discover_params.end_handle = BT_ATT_LAST_ATTRIBUTE_HANDLE;
-	discover_params.type = BT_GATT_DISCOVER_PRIMARY;
-
-	err = bt_gatt_discover(conn, &discover_params);
+	err = start_hids_discovery_step(conn, HIDS_DISCOVERY_STEP_SERVICE);
 	if (err) {
 		printk("Discover failed (err %d)\n", err);
 		discovery_started = false;
 		atomic_set(&discovering, 0);
+		hids_discovery_step = HIDS_DISCOVERY_STEP_IDLE;
 	}
 }
 
@@ -721,11 +783,12 @@ static void handle_disconnected(struct bt_conn *conn, uint8_t reason)
 	}
 
 	/* 2) Cancel any outstanding GATT procedures that use discover_params. */
-	if (atomic_get(&discovering)) {
-		bt_gatt_cancel(conn, &discover_params);
-		atomic_set(&discovering, 0);
-		discovery_started = false;
-	}
+    if (atomic_get(&discovering)) {
+        bt_gatt_cancel(conn, &discover_params);
+        atomic_set(&discovering, 0);
+        discovery_started = false;
+        hids_discovery_step = HIDS_DISCOVERY_STEP_IDLE;
+    }
 
 	/* 3) Drop conn ref. */
 	if (default_conn == conn) {
@@ -741,6 +804,7 @@ static void handle_disconnected(struct bt_conn *conn, uint8_t reason)
 	hids_end_handle = 0;
 	hids_ctrl_point_handle = 0;
 	hids_protocol_mode_handle = 0;
+    hids_discovery_step = HIDS_DISCOVERY_STEP_IDLE;
 
 	/* 5) Reset subscribe params fields you own. */
 	subscribe_params.value_handle = 0;
