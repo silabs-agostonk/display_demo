@@ -22,6 +22,7 @@ LOG_MODULE_REGISTER(bt_connection, LOG_LEVEL_INF);
 
 #include "app_types.h"
 #include "ble_hid_app.h"
+#include "hid_mouse.h"
 
 
 
@@ -80,23 +81,12 @@ extern volatile size_t pointer_y;
 
 extern struct k_msgq mouse_data_queue;
 
-static inline int16_t sign_extend_12(uint16_t v)
-{
-	// Helper function for Logitech MX with 12 signed data
-    // If bit 11 (sign bit) is set, extend with 1s
-    if (v & 0x0800) {
-        v |= 0xF000;
-    }
-    return (int16_t)v;
-}
-
-
 static uint8_t notify_func(struct bt_conn *conn,
 			   struct bt_gatt_subscribe_params *params,
-			   const void *data, uint16_t length)
+			   const void *data,
+			   uint16_t length)
 {
-	uint8_t* d;
-
+	int err;
 	struct mouse_data_element mouse_data_new_element;
 
 	if (!data) {
@@ -104,56 +94,38 @@ static uint8_t notify_func(struct bt_conn *conn,
 		params->value_handle = 0U;
 		return BT_GATT_ITER_STOP;
 	}
-	
-	d = (uint8_t*) data;
 
-	printk("Value: 0x%04X Value handle: 0x%04X\n", params->value, params->value_handle);
+	printk("Value: 0x%04X Value handle: 0x%04X\n",
+	       params->value,
+	       params->value_handle);
 	printk("[NOTIFICATION] data %p length %u\n", data, length);
-	
 
-	for (uint16_t i = 0; i < length; i++) printk("%02X ", ((uint8_t*)data)[i]);
+	for (uint16_t i = 0; i < length; i++) {
+		printk("%02X ", ((const uint8_t *)data)[i]);
+	}
 	printk("\n");
-	
-	// Extract button states
-	if (d[0] & BIT(0)) mouse_data_new_element.left_button = true;
-	else mouse_data_new_element.left_button = false;
 
-	if (d[0] & BIT(1)) mouse_data_new_element.right_button = true;
-	else mouse_data_new_element.right_button = false;
-
-
-	// Here is the right palce to interpret HID table in future
-
-	/*
-	// Extract X and Y movement (Logitech Mx master: 4000 dpi)
-	uint16_t x12 = ((uint16_t)(d[3] & 0x0F) << 8) | d[2];
-	uint16_t y12 = ((uint16_t)(d[4] << 4)) | ((d[3] >> 4) & 0x0F);
-
-	int16_t dx = sign_extend_12(x12);
-	int16_t dy = sign_extend_12(y12);
-	*/
-
-	// Extract X and Y movement (Logitech M196: 1000 dpi)
-	int16_t dx = (int16_t)((d[2] << 8) | d[1]);
-	int16_t dy = (int16_t)((d[4] << 8) | d[3]);
-
-	printk("Button: %d %d | Diff x:%d y:%d\n", mouse_data_new_element.left_button, mouse_data_new_element.right_button, dx, dy);
-	//if (dx>20) dx =20;
-	//if (dx<-20) dx =-20;
-	//if (dy>20) dy =20;
-	//if (dy<-20) dy =-20;
-	
-	mouse_data_new_element.dx = dx;
-	mouse_data_new_element.dy = dy;
-
-	// Passing data into queue
-	while (k_msgq_put(&mouse_data_queue, &mouse_data_new_element, K_NO_WAIT) != 0) {
-		/* message queue is full: purge old data & try again */
-		k_msgq_purge(&mouse_data_queue);
+	err = hid_mouse_decode_logitech_m196((const uint8_t *)data,
+					     length,
+					     &mouse_data_new_element);
+	if (err) {
+		printk("HID mouse decode failed: %d\n", err);
+		return BT_GATT_ITER_CONTINUE;
 	}
 
+	printk("Button: %d %d | Diff x:%d y:%d\n",
+	       mouse_data_new_element.left_button,
+	       mouse_data_new_element.right_button,
+	       mouse_data_new_element.dx,
+	       mouse_data_new_element.dy);
 
-	//printk("%d %d\n", dx, dy);
+	/* Passing data into queue */
+	while (k_msgq_put(&mouse_data_queue,
+			  &mouse_data_new_element,
+			  K_NO_WAIT) != 0) {
+		/* Message queue is full: purge old data and try again. */
+		k_msgq_purge(&mouse_data_queue);
+	}
 
 	total_rx_count++;
 
