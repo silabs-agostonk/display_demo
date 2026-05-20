@@ -25,12 +25,11 @@
 LOG_MODULE_REGISTER(bt_connection, LOG_LEVEL_INF);
 
 /* Filter for near devices. */
-#define RSSI_CONNECT_THRESHOLD            (-30)
-#define DIRECT_CONNECT_FALLBACK_DELAY_MS  2000
+#define RSSI_CONNECT_THRESHOLD			(-30)
 
-#define BLE_EVENT_QUEUE_LEN               16
-#define BLE_EVENT_THREAD_STACK_SIZE       3072
-#define BLE_EVENT_THREAD_PRIORITY         7
+#define BLE_EVENT_QUEUE_LEN			   16
+#define BLE_EVENT_THREAD_STACK_SIZE	   3072
+#define BLE_EVENT_THREAD_PRIORITY		 7
 
 enum ble_event_type {
 	BLE_EVENT_START,
@@ -42,8 +41,8 @@ enum ble_event_type {
 	BLE_EVENT_SET_PAIRING_MODE,
 	BLE_EVENT_TOGGLE_PAIRING_MODE,
 	BLE_EVENT_PAIRING_TIMEOUT,
-	BLE_EVENT_CONNECT_FALLBACK_SCAN_TIMEOUT,
 	BLE_EVENT_PAIRING_COMPLETE,
+    BLE_EVENT_HIDS_DISCOVERY_STEP,
 };
 
 enum hids_discovery_step {
@@ -55,6 +54,17 @@ enum hids_discovery_step {
 	HIDS_DISCOVERY_STEP_CTRL_POINT,
 	HIDS_DISCOVERY_STEP_DONE,
 };
+
+enum ble_conn_state {
+	BLE_CONN_STATE_IDLE,
+	BLE_CONN_STATE_SCANNING,
+	BLE_CONN_STATE_CONNECTING,
+	BLE_CONN_STATE_CONNECTED,
+	BLE_CONN_STATE_DISCOVERING,
+	BLE_CONN_STATE_READY,
+	BLE_CONN_STATE_RECONNECTING,
+};
+
 
 struct ble_event {
 	enum ble_event_type type;
@@ -94,11 +104,17 @@ struct ble_event {
 			struct bt_conn *conn;
 			bool bonded;
 		} pairing_complete;
+
+        struct {
+            struct bt_conn *conn;
+            enum hids_discovery_step step;
+        } hids_discovery_step;
 	};
 };
 
 struct ble_hid_ctx {
 	struct bt_conn *conn;
+    enum ble_conn_state state;
 
 	struct bt_uuid_16 discover_uuid;
 	struct bt_gatt_discover_params discover_params;
@@ -124,13 +140,12 @@ struct ble_hid_ctx {
 	bt_addr_le_t preferred_addr;
 	bool have_preferred;
 
-	struct k_work_delayable connect_fallback_scan_work;
 };
 
 K_MSGQ_DEFINE(ble_event_queue,
-	      sizeof(struct ble_event),
-	      BLE_EVENT_QUEUE_LEN,
-	      sizeof(void *));
+		  sizeof(struct ble_event),
+		  BLE_EVENT_QUEUE_LEN,
+		  sizeof(void *));
 
 K_THREAD_STACK_DEFINE(ble_event_thread_stack, BLE_EVENT_THREAD_STACK_SIZE);
 static struct k_thread ble_event_thread_data;
@@ -139,25 +154,22 @@ static bool ble_event_thread_started;
 static struct ble_hid_ctx ble_ctx = {
 	.discover_uuid = BT_UUID_INIT_16(0),
 	.hids_discovery_step = HIDS_DISCOVERY_STEP_IDLE,
+    .state = BLE_CONN_STATE_IDLE,
 };
 
 static const bt_security_t target_sec = BT_SECURITY_L2;
 
 static const struct bt_conn_le_create_param create_param_coded =
 	BT_CONN_LE_CREATE_PARAM_INIT(BT_CONN_LE_OPT_CODED,
-				     BT_GAP_SCAN_FAST_INTERVAL,
-				     BT_GAP_SCAN_FAST_WINDOW);
+					 BT_GAP_SCAN_FAST_INTERVAL,
+					 BT_GAP_SCAN_FAST_WINDOW);
 
 static const struct bt_conn_le_create_param create_param_1m =
 	BT_CONN_LE_CREATE_PARAM_INIT(BT_CONN_LE_OPT_NONE,
-				     BT_GAP_SCAN_FAST_INTERVAL,
-				     BT_GAP_SCAN_FAST_WINDOW);
+					 BT_GAP_SCAN_FAST_INTERVAL,
+					 BT_GAP_SCAN_FAST_WINDOW);
 
 uint64_t total_rx_count;
-
-/* This value is exposed to test code. */
-extern volatile size_t pointer_x;
-extern volatile size_t pointer_y;
 
 int bt_connection_hids_ctrl_point_write(uint8_t val);
 void bt_connection_enable_pairing_mode(bool enable);
@@ -173,13 +185,17 @@ static int connect_to_addr(struct ble_hid_ctx *ctx, const bt_addr_le_t *addr);
 static void try_connect_preferred_or_scan(struct ble_hid_ctx *ctx);
 static void start_hids_discovery(struct ble_hid_ctx *ctx, struct bt_conn *conn);
 static int start_hids_discovery_step(struct ble_hid_ctx *ctx,
-				     struct bt_conn *conn,
+					 struct bt_conn *conn,
+					 enum hids_discovery_step step);
+static void post_hids_discovery_step(struct bt_conn *conn,
 				     enum hids_discovery_step step);
 static uint8_t discover_func(struct bt_conn *conn,
-			     const struct bt_gatt_attr *attr,
-			     struct bt_gatt_discover_params *params);
+				 const struct bt_gatt_attr *attr,
+				 struct bt_gatt_discover_params *params);
 static void refresh_bond_state(struct ble_hid_ctx *ctx);
 static void set_pairing_mode_internal(struct ble_hid_ctx *ctx, bool enable);
+static void hids_discovery_mark_stopped(struct ble_hid_ctx *ctx);
+
 
 static void ble_event_cleanup(struct ble_event *event)
 {
@@ -211,6 +227,12 @@ static void ble_event_cleanup(struct ble_event *event)
 			event->pairing_complete.conn = NULL;
 		}
 		break;
+    case BLE_EVENT_HIDS_DISCOVERY_STEP:
+        if (event->hids_discovery_step.conn) {
+            bt_conn_unref(event->hids_discovery_step.conn);
+            event->hids_discovery_step.conn = NULL;
+        }
+        break;
 
 	default:
 		break;
@@ -270,8 +292,8 @@ static uint8_t notify_func(struct bt_conn *conn,
 	}
 
 	printk("Value: 0x%04X Value handle: 0x%04X\n",
-	       params->value,
-	       params->value_handle);
+		   params->value,
+		   params->value_handle);
 	printk("[NOTIFICATION] data %p length %u\n", data, length);
 
 	for (uint16_t i = 0; i < length; i++) {
@@ -280,18 +302,18 @@ static uint8_t notify_func(struct bt_conn *conn,
 	printk("\n");
 
 	err = hid_mouse_decode_logitech_m196((const uint8_t *)data,
-					     length,
-					     &mouse_data_new_element);
+						 length,
+						 &mouse_data_new_element);
 	if (err) {
 		printk("HID mouse decode failed: %d\n", err);
 		return BT_GATT_ITER_CONTINUE;
 	}
 
 	printk("Button: %d %d | Diff x:%d y:%d\n",
-	       mouse_data_new_element.left_button,
-	       mouse_data_new_element.right_button,
-	       mouse_data_new_element.dx,
-	       mouse_data_new_element.dy);
+		   mouse_data_new_element.left_button,
+		   mouse_data_new_element.right_button,
+		   mouse_data_new_element.dx,
+		   mouse_data_new_element.dy);
 
 	err = app_input_submit_mouse(&mouse_data_new_element);
 	if (err) {
@@ -304,21 +326,40 @@ static uint8_t notify_func(struct bt_conn *conn,
 	return BT_GATT_ITER_CONTINUE;
 }
 
-static uint8_t discover_func(struct bt_conn *conn,
-			     const struct bt_gatt_attr *attr,
-			     struct bt_gatt_discover_params *params)
+static void hids_discovery_mark_stopped(struct ble_hid_ctx *ctx)
 {
-	int err;
+	ctx->discovery_started = false;
+	ctx->discovering = false;
+	ctx->hids_discovery_step = HIDS_DISCOVERY_STEP_IDLE;
+    if (ctx->state == BLE_CONN_STATE_DISCOVERING) {
+		ctx->state = ctx->conn ? BLE_CONN_STATE_CONNECTED : BLE_CONN_STATE_IDLE;
+	}
+}
+
+
+static bool conn_is_current(const struct ble_hid_ctx *ctx, struct bt_conn *conn)
+{
+	return conn && ctx->conn == conn;
+}
+
+
+static uint8_t discover_func(struct bt_conn *conn,
+				 const struct bt_gatt_attr *attr,
+				 struct bt_gatt_discover_params *params)
+{
+    int err;
 	struct ble_hid_ctx *ctx = &ble_ctx;
+
+    if (!conn_is_current(ctx, conn)) {
+        return BT_GATT_ITER_STOP;
+    }
 
 	/* Discovery step finished without a matching attribute. */
 	if (!attr) {
 		printk("HIDS discovery step %d complete\n",
-		       ctx->hids_discovery_step);
+			   ctx->hids_discovery_step);
 
-		ctx->discovery_started = false;
-		ctx->discovering = false;
-		ctx->hids_discovery_step = HIDS_DISCOVERY_STEP_IDLE;
+		hids_discovery_mark_stopped(ctx);
 
 		memset(params, 0, sizeof(*params));
 
@@ -334,12 +375,7 @@ static uint8_t discover_func(struct bt_conn *conn,
 		ctx->hids_start_handle = attr->handle;
 		ctx->hids_end_handle = svc->end_handle;
 
-		err = start_hids_discovery_step(ctx,
-						conn,
-						HIDS_DISCOVERY_STEP_REPORT_CHAR);
-		if (err) {
-			printk("Discover REPORT char failed (err %d)\n", err);
-		}
+        post_hids_discovery_step(conn, HIDS_DISCOVERY_STEP_REPORT_CHAR);
 
 		return BT_GATT_ITER_STOP;
 	}
@@ -347,12 +383,7 @@ static uint8_t discover_func(struct bt_conn *conn,
 	case HIDS_DISCOVERY_STEP_REPORT_CHAR:
 		ctx->subscribe_params.value_handle = bt_gatt_attr_value_handle(attr);
 
-		err = start_hids_discovery_step(ctx,
-						conn,
-						HIDS_DISCOVERY_STEP_REPORT_CCC);
-		if (err) {
-			printk("Discover CCC descriptor failed (err %d)\n", err);
-		}
+        post_hids_discovery_step(conn, HIDS_DISCOVERY_STEP_REPORT_CCC);
 
 		return BT_GATT_ITER_STOP;
 
@@ -373,12 +404,7 @@ static uint8_t discover_func(struct bt_conn *conn,
 			printk("[SUBSCRIBED]\n");
 		}
 
-		err = start_hids_discovery_step(ctx,
-						conn,
-						HIDS_DISCOVERY_STEP_PROTOCOL_MODE);
-		if (err) {
-			printk("Discover Protocol Mode failed (err %d)\n", err);
-		}
+        post_hids_discovery_step(conn, HIDS_DISCOVERY_STEP_PROTOCOL_MODE);
 
 		return BT_GATT_ITER_STOP;
 
@@ -388,20 +414,15 @@ static uint8_t discover_func(struct bt_conn *conn,
 		ctx->hids_protocol_mode_handle = bt_gatt_attr_value_handle(attr);
 
 		err = bt_gatt_write_without_response(conn,
-						     ctx->hids_protocol_mode_handle,
-						     &val,
-						     sizeof(val),
-						     false);
+							 ctx->hids_protocol_mode_handle,
+							 &val,
+							 sizeof(val),
+							 false);
 		if (err) {
 			printk("Write Protocol Mode failed (err %d)\n", err);
 		}
 
-		err = start_hids_discovery_step(ctx,
-						conn,
-						HIDS_DISCOVERY_STEP_CTRL_POINT);
-		if (err) {
-			printk("Discover Control Point failed (err %d)\n", err);
-		}
+        post_hids_discovery_step(conn, HIDS_DISCOVERY_STEP_CTRL_POINT);
 
 		return BT_GATT_ITER_STOP;
 	}
@@ -415,21 +436,29 @@ static uint8_t discover_func(struct bt_conn *conn,
 		ctx->hids_discovery_step = HIDS_DISCOVERY_STEP_DONE;
 		ctx->discovery_started = false;
 		ctx->discovering = false;
+        ctx->state = BLE_CONN_STATE_READY;
 
 		return BT_GATT_ITER_STOP;
 
 	default:
 		printk("Unexpected HIDS discovery step %d\n",
-		       ctx->hids_discovery_step);
+			   ctx->hids_discovery_step);
 		return BT_GATT_ITER_STOP;
 	}
 }
 
 static int start_hids_discovery_step(struct ble_hid_ctx *ctx,
-				     struct bt_conn *conn,
-				     enum hids_discovery_step step)
+					 struct bt_conn *conn,
+					 enum hids_discovery_step step)
 {
 	int err;
+    if (!conn_is_current(ctx, conn)) {
+		return -ENOTCONN;
+	}
+
+	if (ctx->state != BLE_CONN_STATE_DISCOVERING) {
+		return -EALREADY;
+	}
 
 	memset(&ctx->discover_params, 0, sizeof(ctx->discover_params));
 	ctx->discover_params.func = discover_func;
@@ -437,7 +466,7 @@ static int start_hids_discovery_step(struct ble_hid_ctx *ctx,
 	switch (step) {
 	case HIDS_DISCOVERY_STEP_SERVICE:
 		memcpy(&ctx->discover_uuid, BT_UUID_HIDS,
-		       sizeof(ctx->discover_uuid));
+			   sizeof(ctx->discover_uuid));
 
 		ctx->discover_params.uuid = &ctx->discover_uuid.uuid;
 		ctx->discover_params.start_handle = BT_ATT_FIRST_ATTRIBUTE_HANDLE;
@@ -447,7 +476,7 @@ static int start_hids_discovery_step(struct ble_hid_ctx *ctx,
 
 	case HIDS_DISCOVERY_STEP_REPORT_CHAR:
 		memcpy(&ctx->discover_uuid, BT_UUID_HIDS_REPORT,
-		       sizeof(ctx->discover_uuid));
+			   sizeof(ctx->discover_uuid));
 
 		ctx->discover_params.uuid = &ctx->discover_uuid.uuid;
 		ctx->discover_params.start_handle = ctx->hids_start_handle + 1;
@@ -457,7 +486,7 @@ static int start_hids_discovery_step(struct ble_hid_ctx *ctx,
 
 	case HIDS_DISCOVERY_STEP_REPORT_CCC:
 		memcpy(&ctx->discover_uuid, BT_UUID_GATT_CCC,
-		       sizeof(ctx->discover_uuid));
+			   sizeof(ctx->discover_uuid));
 
 		ctx->discover_params.uuid = &ctx->discover_uuid.uuid;
 		ctx->discover_params.start_handle = ctx->subscribe_params.value_handle + 1;
@@ -467,7 +496,7 @@ static int start_hids_discovery_step(struct ble_hid_ctx *ctx,
 
 	case HIDS_DISCOVERY_STEP_PROTOCOL_MODE:
 		memcpy(&ctx->discover_uuid, BT_UUID_HIDS_PROTOCOL_MODE,
-		       sizeof(ctx->discover_uuid));
+			   sizeof(ctx->discover_uuid));
 
 		ctx->discover_params.uuid = &ctx->discover_uuid.uuid;
 		ctx->discover_params.start_handle = ctx->hids_start_handle + 1;
@@ -477,7 +506,7 @@ static int start_hids_discovery_step(struct ble_hid_ctx *ctx,
 
 	case HIDS_DISCOVERY_STEP_CTRL_POINT:
 		memcpy(&ctx->discover_uuid, BT_UUID_HIDS_CTRL_POINT,
-		       sizeof(ctx->discover_uuid));
+			   sizeof(ctx->discover_uuid));
 
 		ctx->discover_params.uuid = &ctx->discover_uuid.uuid;
 		ctx->discover_params.start_handle = ctx->hids_start_handle + 1;
@@ -494,12 +523,25 @@ static int start_hids_discovery_step(struct ble_hid_ctx *ctx,
 	err = bt_gatt_discover(conn, &ctx->discover_params);
 	if (err) {
 		printk("HIDS discovery step %d failed to start (err %d)\n",
-		       step,
-		       err);
-		ctx->hids_discovery_step = HIDS_DISCOVERY_STEP_IDLE;
+			   step,
+			   err);
+		hids_discovery_mark_stopped(ctx);
 	}
 
 	return err;
+}
+
+static void post_hids_discovery_step(struct bt_conn *conn,
+				     enum hids_discovery_step step)
+{
+	struct ble_event event = {
+		.type = BLE_EVENT_HIDS_DISCOVERY_STEP,
+	};
+
+	event.hids_discovery_step.conn = bt_conn_ref(conn);
+	event.hids_discovery_step.step = step;
+
+	(void)ble_event_post(&event);
 }
 
 static void bond_pick_first(const struct bt_bond_info *info, void *user_data)
@@ -529,17 +571,6 @@ static void refresh_bond_state(struct ble_hid_ctx *ctx)
 	}
 }
 
-static void connect_fallback_scan_fn(struct k_work *work)
-{
-	struct ble_event event = {
-		.type = BLE_EVENT_CONNECT_FALLBACK_SCAN_TIMEOUT,
-	};
-
-	ARG_UNUSED(work);
-
-	(void)ble_event_post(&event);
-}
-
 static void stop_scan(struct ble_hid_ctx *ctx)
 {
 	int err;
@@ -555,6 +586,7 @@ static void stop_scan(struct ble_hid_ctx *ctx)
 	}
 
 	ctx->scanning = false;
+    ctx->state = BLE_CONN_STATE_IDLE;
 }
 
 static int connect_to_addr(struct ble_hid_ctx *ctx, const bt_addr_le_t *addr)
@@ -568,6 +600,8 @@ static int connect_to_addr(struct ble_hid_ctx *ctx, const bt_addr_le_t *addr)
 	stop_scan(ctx);
 
 	ctx->connecting = true;
+	ctx->state = ctx->have_bond ? BLE_CONN_STATE_RECONNECTING :
+				      BLE_CONN_STATE_CONNECTING;
 
 	printk("Creating connection with Coded PHY support\n");
 
@@ -593,6 +627,8 @@ static int connect_to_addr(struct ble_hid_ctx *ctx, const bt_addr_le_t *addr)
 	printk("Create connection failed (err %d)\n", err);
 	ctx->connecting = false;
 	ctx->conn = NULL;
+	ctx->state = BLE_CONN_STATE_IDLE;
+
 	start_scan(ctx);
 
 	return err;
@@ -600,46 +636,34 @@ static int connect_to_addr(struct ble_hid_ctx *ctx, const bt_addr_le_t *addr)
 
 static void try_connect_preferred_or_scan(struct ble_hid_ctx *ctx)
 {
-	int err;
-
-	if (!ctx->have_preferred) {
-		start_scan(ctx);
-		return;
-	}
-
-	/* Try direct connect first. Scan fallback handles stale RPA addresses. */
-	err = connect_to_addr(ctx, &ctx->preferred_addr);
-	if (err) {
-		return;
-	}
-
-	k_work_schedule(&ctx->connect_fallback_scan_work,
-			K_MSEC(DIRECT_CONNECT_FALLBACK_DELAY_MS));
-}
-
-static void handle_connect_fallback_scan_timeout(void)
-{
-	struct ble_hid_ctx *ctx = &ble_ctx;
-
-	if (ctx->conn || ctx->connecting) {
-		/* Connection attempt is still ongoing, or we are already connected. */
-		return;
-	}
-
 	start_scan(ctx);
 }
+
 
 static bool adv_type_is_connectable(uint8_t adv_type)
 {
 	return adv_type == BT_GAP_ADV_TYPE_ADV_IND ||
-	       adv_type == BT_GAP_ADV_TYPE_ADV_DIRECT_IND ||
-	       adv_type == BT_GAP_ADV_TYPE_EXT_ADV;
+		   adv_type == BT_GAP_ADV_TYPE_ADV_DIRECT_IND ||
+		   adv_type == BT_GAP_ADV_TYPE_EXT_ADV;
 }
 
 static bool should_connect_to_device(const struct ble_hid_ctx *ctx,
 				     const struct ble_event *event)
 {
+	if (ctx->state == BLE_CONN_STATE_CONNECTING ||
+	    ctx->state == BLE_CONN_STATE_RECONNECTING ||
+	    ctx->state == BLE_CONN_STATE_CONNECTED ||
+	    ctx->state == BLE_CONN_STATE_DISCOVERING ||
+	    ctx->state == BLE_CONN_STATE_READY) {
+		return false;
+	}
+
 	if (!ctx->have_bond && !ctx->pairing_allowed) {
+		return false;
+	}
+
+	if (ctx->have_bond && !ctx->pairing_allowed &&
+	    bt_addr_le_cmp(&event->device_found.addr, &ctx->preferred_addr)) {
 		return false;
 	}
 
@@ -666,9 +690,9 @@ static void handle_device_found(const struct ble_event *event)
 	bt_addr_le_to_str(&event->device_found.addr, dev, sizeof(dev));
 
 	printk("[DEVICE]: %s (type %u) RSSI %d\n",
-	       dev,
-	       event->device_found.adv_type,
-	       event->device_found.rssi);
+		   dev,
+		   event->device_found.adv_type,
+		   event->device_found.rssi);
 
 	if (!should_connect_to_device(ctx, event)) {
 		return;
@@ -725,6 +749,7 @@ static void start_scan(struct ble_hid_ctx *ctx)
 	}
 
 	ctx->scanning = true;
+    ctx->state = BLE_CONN_STATE_SCANNING;
 	printk("Scanning successfully started\n");
 }
 
@@ -752,11 +777,11 @@ static void handle_connected(struct bt_conn *conn, uint8_t conn_err)
 	printk("Connected: %s\n", addr);
 
 	ctx->connecting = false;
-	k_work_cancel_delayable(&ctx->connect_fallback_scan_work);
 
-	if (conn != ctx->conn) {
-		return;
-	}
+    if (!conn_is_current(ctx, conn)) {
+        return;
+    }
+    ctx->state = BLE_CONN_STATE_CONNECTED;
 
 	total_rx_count = 0U;
 
@@ -764,8 +789,8 @@ static void handle_connected(struct bt_conn *conn, uint8_t conn_err)
 	err = bt_conn_set_security(conn, target_sec);
 	if (err) {
 		printk("bt_conn_set_security(%u) failed (err %d)\n",
-		       target_sec,
-		       err);
+			   target_sec,
+			   err);
 	}
 }
 
@@ -789,9 +814,14 @@ static void start_hids_discovery(struct ble_hid_ctx *ctx, struct bt_conn *conn)
 		return;
 	}
 
+    if (!conn_is_current(ctx, conn)) {
+		return;
+	}
+
 	ctx->discovering = true;
 	ctx->discovery_started = true;
 	ctx->hids_discovery_step = HIDS_DISCOVERY_STEP_IDLE;
+    ctx->state = BLE_CONN_STATE_DISCOVERING;
 
 	memset(&ctx->subscribe_params, 0, sizeof(ctx->subscribe_params));
 
@@ -800,9 +830,7 @@ static void start_hids_discovery(struct ble_hid_ctx *ctx, struct bt_conn *conn)
 					HIDS_DISCOVERY_STEP_SERVICE);
 	if (err) {
 		printk("Discover failed (err %d)\n", err);
-		ctx->discovery_started = false;
-		ctx->discovering = false;
-		ctx->hids_discovery_step = HIDS_DISCOVERY_STEP_IDLE;
+		hids_discovery_mark_stopped(ctx);
 	}
 }
 
@@ -826,9 +854,9 @@ static void handle_disconnected(struct bt_conn *conn, uint8_t reason)
 	bt_addr_le_to_str(bt_conn_get_dst(conn), addr, sizeof(addr));
 
 	printk("Disconnected: %s, reason 0x%02x %s\n",
-	       addr,
-	       reason,
-	       bt_hci_err_to_str(reason));
+		   addr,
+		   reason,
+		   bt_hci_err_to_str(reason));
 
 	if (ctx->subscribe_params.value_handle) {
 		int e = bt_gatt_unsubscribe(conn, &ctx->subscribe_params);
@@ -838,9 +866,7 @@ static void handle_disconnected(struct bt_conn *conn, uint8_t reason)
 
 	if (ctx->discovering) {
 		bt_gatt_cancel(conn, &ctx->discover_params);
-		ctx->discovering = false;
-		ctx->discovery_started = false;
-		ctx->hids_discovery_step = HIDS_DISCOVERY_STEP_IDLE;
+		hids_discovery_mark_stopped(ctx);
 	}
 
 	if (ctx->conn == conn) {
@@ -849,7 +875,7 @@ static void handle_disconnected(struct bt_conn *conn, uint8_t reason)
 	}
 
 	ctx->connecting = false;
-	ctx->scanning = false;
+    ctx->state = BLE_CONN_STATE_IDLE;
 
 	reset_hids_state(ctx);
 
@@ -888,7 +914,7 @@ static void auth_passkey_display(struct bt_conn *conn, unsigned int passkey)
 static void auth_passkey_confirm(struct bt_conn *conn, unsigned int passkey)
 {
 	printk("Numeric comparison: %06u (auto-accept passkey confirm)\n",
-	       passkey);
+		   passkey);
 	bt_conn_auth_passkey_confirm(conn);
 }
 
@@ -965,8 +991,8 @@ static void handle_pairing_complete(struct bt_conn *conn, bool bonded)
 }
 
 static void handle_security_changed(struct bt_conn *conn,
-				    bt_security_t level,
-				    enum bt_security_err err)
+					bt_security_t level,
+					enum bt_security_err err)
 {
 	struct ble_hid_ctx *ctx = &ble_ctx;
 	char addr[BT_ADDR_LE_STR_LEN];
@@ -975,22 +1001,26 @@ static void handle_security_changed(struct bt_conn *conn,
 
 	if (err) {
 		printk("Security failed: %s level %u err %d\n",
-		       addr,
-		       level,
-		       err);
+			   addr,
+			   level,
+			   err);
+		(void)bt_conn_disconnect(conn, BT_HCI_ERR_AUTH_FAIL);
 		return;
 	}
 
 	printk("Security changed: %s level %u\n", addr, level);
 
-	if (conn == ctx->conn && !ctx->discovery_started && level >= target_sec) {
+	if (conn_is_current(ctx, conn) &&
+	    ctx->state == BLE_CONN_STATE_CONNECTED &&
+	    !ctx->discovery_started &&
+	    level >= target_sec) {
 		start_hids_discovery(ctx, conn);
 	}
 }
 
 static void security_changed(struct bt_conn *conn,
-			     bt_security_t level,
-			     enum bt_security_err err)
+				 bt_security_t level,
+				 enum bt_security_err err)
 {
 	struct ble_event event = {
 		.type = BLE_EVENT_SECURITY_CHANGED,
@@ -1022,10 +1052,10 @@ int bt_connection_hids_ctrl_point_write(uint8_t val)
 	}
 
 	return bt_gatt_write_without_response(ctx->conn,
-					      ctx->hids_ctrl_point_handle,
-					      &val,
-					      sizeof(val),
-					      false);
+						  ctx->hids_ctrl_point_handle,
+						  &val,
+						  sizeof(val),
+						  false);
 }
 
 static void pairing_mode_timeout_fn(struct k_work *work)
@@ -1071,10 +1101,8 @@ static void handle_bt_ready(int e)
 	err = bt_conn_auth_info_cb_register(&auth_info_cb);
 	printk("auth_info_cb_register: %d\n", err);
 
-	k_work_init_delayable(&ctx->connect_fallback_scan_work,
-			      connect_fallback_scan_fn);
 	k_work_init_delayable(&ctx->pairing_mode_timeout_work,
-			      pairing_mode_timeout_fn);
+				  pairing_mode_timeout_fn);
 
 	ctx->pairing_allowed = false;
 
@@ -1186,7 +1214,7 @@ static void ble_event_handle(const struct ble_event *event)
 
 	case BLE_EVENT_DISCONNECTED:
 		handle_disconnected(event->disconnected.conn,
-				    event->disconnected.reason);
+					event->disconnected.reason);
 		break;
 
 	case BLE_EVENT_SECURITY_CHANGED:
@@ -1195,9 +1223,14 @@ static void ble_event_handle(const struct ble_event *event)
 					event->security_changed.err);
 		break;
 
-	case BLE_EVENT_SET_PAIRING_MODE:
-		set_pairing_mode_internal(&ble_ctx, event->set_pairing_mode.enable);
-		break;
+    case BLE_EVENT_SET_PAIRING_MODE:
+        set_pairing_mode_internal(&ble_ctx, event->set_pairing_mode.enable);
+        if (event->set_pairing_mode.enable) {
+            k_work_schedule(&ble_ctx.pairing_mode_timeout_work, K_SECONDS(60));
+        } else {
+            k_work_cancel_delayable(&ble_ctx.pairing_mode_timeout_work);
+        }
+        break;
 
 	case BLE_EVENT_TOGGLE_PAIRING_MODE:
 		handle_toggle_pairing_mode();
@@ -1207,13 +1240,15 @@ static void ble_event_handle(const struct ble_event *event)
 		handle_pairing_timeout();
 		break;
 
-	case BLE_EVENT_CONNECT_FALLBACK_SCAN_TIMEOUT:
-		handle_connect_fallback_scan_timeout();
-		break;
-
 	case BLE_EVENT_PAIRING_COMPLETE:
 		handle_pairing_complete(event->pairing_complete.conn,
 					event->pairing_complete.bonded);
+		break;
+
+	case BLE_EVENT_HIDS_DISCOVERY_STEP:
+		start_hids_discovery_step(&ble_ctx,
+					  event->hids_discovery_step.conn,
+					  event->hids_discovery_step.step);
 		break;
 
 	default:
@@ -1254,9 +1289,9 @@ static void button_input_cb(struct input_event *evt, void *user_data)
 	}
 
 	printk("Button %d %s at %" PRIu32 "\n",
-	       evt->code,
-	       evt->value ? "pressed" : "released",
-	       k_cycle_get_32());
+		   evt->code,
+		   evt->value ? "pressed" : "released",
+		   k_cycle_get_32());
 
 	if (evt->value) {
 		(void)ble_event_post(&event);
