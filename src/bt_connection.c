@@ -42,6 +42,8 @@ enum ble_event_type {
 	BLE_EVENT_SECURITY_CHANGED,
 	BLE_EVENT_SET_PAIRING_MODE,
 	BLE_EVENT_TOGGLE_PAIRING_MODE,
+	BLE_EVENT_PAIRING_TIMEOUT,
+	BLE_EVENT_CONNECT_FALLBACK_SCAN_TIMEOUT,
 	BLE_EVENT_PAIRING_COMPLETE,
 };
 
@@ -440,14 +442,13 @@ static void refresh_bond_state(void)
 
 static void connect_fallback_scan_fn(struct k_work *work)
 {
+	struct ble_event event = {
+		.type = BLE_EVENT_CONNECT_FALLBACK_SCAN_TIMEOUT,
+	};
+
 	ARG_UNUSED(work);
 
-	if (default_conn || atomic_get(&connecting)) {
-		/* Connection attempt still ongoing or connected; don't scan. */
-		return;
-	}
-
-	start_scan();
+	(void)ble_event_post(&event);
 }
 
 static void connect_to_addr(const bt_addr_le_t *addr)
@@ -512,6 +513,19 @@ static void try_connect_preferred_or_scan(void)
 	 */
 	k_work_schedule(&connect_fallback_scan_work,
 			K_MSEC(DIRECT_CONNECT_FALLBACK_DELAY_MS));
+}
+
+static void handle_connect_fallback_scan_timeout(void)
+{
+	if (default_conn || atomic_get(&connecting)) {
+		/*
+		 * Connection attempt is still ongoing, or we are already
+		 * connected. The timeout is stale, so ignore it.
+		 */
+		return;
+	}
+
+	start_scan();
 }
 
 static void handle_device_found(const struct ble_event *event)
@@ -905,9 +919,13 @@ int bt_connection_hids_ctrl_point_write(uint8_t val)
 
 static void pairing_mode_timeout_fn(struct k_work *work)
 {
+	struct ble_event event = {
+		.type = BLE_EVENT_PAIRING_TIMEOUT,
+	};
+
 	ARG_UNUSED(work);
 
-	bt_connection_enable_pairing_mode(false);
+	(void)ble_event_post(&event);
 }
 
 static void bt_enable_ready_cb(int e)
@@ -1022,6 +1040,15 @@ static void handle_toggle_pairing_mode(void)
 	}
 }
 
+static void handle_pairing_timeout(void)
+{
+	if (!pairing_allowed) {
+		return;
+	}
+
+	set_pairing_mode_internal(false);
+}
+
 static void ble_event_handle(const struct ble_event *event)
 {
 	switch (event->type) {
@@ -1059,6 +1086,14 @@ static void ble_event_handle(const struct ble_event *event)
 
 	case BLE_EVENT_TOGGLE_PAIRING_MODE:
 		handle_toggle_pairing_mode();
+		break;
+
+	case BLE_EVENT_PAIRING_TIMEOUT:
+		handle_pairing_timeout();
+		break;
+
+	case BLE_EVENT_CONNECT_FALLBACK_SCAN_TIMEOUT:
+		handle_connect_fallback_scan_timeout();
 		break;
 
 	case BLE_EVENT_PAIRING_COMPLETE:
