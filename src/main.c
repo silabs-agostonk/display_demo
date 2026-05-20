@@ -19,6 +19,7 @@ LOG_MODULE_REGISTER(main, LOG_LEVEL_INF);
 #include <stdlib.h>
 
 #include "app_types.h"
+#include "ble_hid_app.h"
 
 
 
@@ -48,8 +49,6 @@ LOG_MODULE_REGISTER(main, LOG_LEVEL_INF);
 #define COLOR_RGB_565_BLUE_M	RGB_TO_RGB565(36, 57, 102)
 #define COLOR_RGB_565_RED_M		RGB_TO_RGB565(176, 0, 00)
 
-
-extern void bt_connection_enable();
 
 #define DISPLAY_W 480
 #define DISPLAY_H 320
@@ -573,7 +572,7 @@ int main(void) {
 
 	k_msleep(500);
 	LOG_INF("03");
-	bt_connection_enable();
+	ble_hid_app_start();
 	LOG_INF("04");
 
 	while (1){

@@ -1,4 +1,4 @@
-
+﻿
 
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(bt_connection, LOG_LEVEL_INF);
@@ -21,6 +21,7 @@ LOG_MODULE_REGISTER(bt_connection, LOG_LEVEL_INF);
 #include <zephyr/settings/settings.h>
 
 #include "app_types.h"
+#include "ble_hid_app.h"
 
 
 
@@ -802,6 +803,13 @@ void bt_connection_enable(void)
         printk("Bluetooth init failed (err %d)\n", err);
         return;
     }
+}
+
+void ble_hid_app_start(void)
+{
+
+	bt_connection_enable();
+
 }
 
 
