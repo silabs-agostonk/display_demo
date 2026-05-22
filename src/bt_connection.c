@@ -453,11 +453,13 @@ static uint8_t notify_func(struct bt_conn *conn,
         LOG_WRN("HID mouse decode failed: %d", err);
         return BT_GATT_ITER_CONTINUE;
     }
-    LOG_INF("Mouse Buttons: %d %d | Diff x:%d y:%d",
+	/*
+    LOG_INF("L:%d R:%d x:%d y:%d",
         mouse_data.left_button,
         mouse_data.right_button,
         mouse_data.dx,
         mouse_data.dy);
+    */
 
     err = app_input_submit_mouse(&mouse_data);
     if (err) {

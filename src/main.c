@@ -12,6 +12,7 @@ LOG_MODULE_REGISTER(main, LOG_LEVEL_INF);
 
 #include <zephyr/kernel.h>
 #include <zephyr/device.h>
+#include <zephyr/devicetree.h>
 #include <zephyr/drivers/display.h>
 #include <zephyr/sys/byteorder.h>
 
@@ -21,6 +22,7 @@ LOG_MODULE_REGISTER(main, LOG_LEVEL_INF);
 #include "app_types.h"
 #include "ble_hid_app.h"
 #include "app_input.h"
+#include "app_graphics.h"
 
 
 #define RGB_TO_RGB565(r,g,b) ( (uint16_t)( \
@@ -50,23 +52,8 @@ LOG_MODULE_REGISTER(main, LOG_LEVEL_INF);
 #define COLOR_RGB_565_RED_M		RGB_TO_RGB565(176, 0, 00)
 
 
-#define DISPLAY_W 480
-#define DISPLAY_H 320
-
 #define BYTES_PER_PIXEL 2
 
-uint8_t canvas_bitmap [(DISPLAY_W * DISPLAY_H) / 8] = {0};
-
-// Images from src/bg_*.c
-#define BACKGROUND_ELEMENTS 3
-extern const c_image bg_hex;
-extern const c_image bg_square;
-extern const c_image bg_triangle;
-
-// https://codebox.net/pages/maze-generator/online
-// Square 14x10 Seed: 857133801
-// Triangle 22x10 Seed: 741051981
-// Hex 12x10 Seed: 620715798
 
 #define MARKER_RADIUS 5
 #define MARKER_BUF_DIM 21
@@ -99,48 +86,7 @@ const struct int16_xy_pair marker_draw_buffer_segment_dimensions [] = {
 	{9,5}
 };
 
-
-uint16_t canvas_set_pixel(uint16_t x, uint16_t y){
-	if (x >= DISPLAY_W || y >= DISPLAY_H)
-        return 1;  // bounds protection
-
-	uint32_t bit_index  = (uint32_t)y * DISPLAY_W + x;
-	uint32_t byte_index = bit_index >> 3;      // divide by 8
-    uint8_t  bit_offset = bit_index & 0x07;    // mod 8
-
-    canvas_bitmap[byte_index] |= (1u << bit_offset);
-	return 0;
-}
-
-void canvas_draw_line(uint16_t x0, uint16_t y0){
-	for(int16_t y=-1; y<=1; y++){
-		for(int16_t x=-1; x<=1; x++){
-			canvas_set_pixel(x0 + x, y0 + y);
-		}
-	}
-}
-
-
-uint8_t canvas_get_pixel(uint16_t x, uint16_t y){
-	if (x >= DISPLAY_W || y >= DISPLAY_H)
-        return 0;  // bounds protection
-
-	uint32_t bit_index  = (uint32_t)y * DISPLAY_W + x;
-	uint32_t byte_index = bit_index >> 3;      // divide by 8
-    uint8_t  bit_offset = bit_index & 0x07;    // mod 8
-
-	return (canvas_bitmap[byte_index] >> bit_offset) & 1u;
-}
-
-static inline uint8_t canvas_get_pixel_inline(uint16_t x, uint16_t y){
-    return (canvas_bitmap[y * (DISPLAY_W / 8) + (x >> 3)] >> (x & 7)) & 1u;
-}
-
-
-void canvas_init(){
-	memset(canvas_bitmap, 0x00, sizeof(canvas_bitmap));
-}
-
+/*
 
 uint16_t display_draw_marker_unused(const struct device *display_dev, uint16_t x, uint16_t y, uint16_t bg_color){
 	static uint16_t marker_buf [9 * 5]; // be aware max size!
@@ -272,13 +218,13 @@ uint16_t display_marker_draw(const struct device *display_dev, int16_t x0, int16
 	int16_t dx = x1 - x0;
 	int16_t dy = y1 - y0;
 
-	/*
-	static int16_t dx_max = 0;
-	static int16_t dy_max = 0;
-	if (dx > dx_max) dx_max = dx;
-	if (dy > dy_max) dy_max = dy;
-	printk("%d %d\n", dx_max, dy_max);
-	*/
+	
+	//static int16_t dx_max = 0;
+	//static int16_t dy_max = 0;
+	//if (dx > dx_max) dx_max = dx;
+	//if (dy > dy_max) dy_max = dy;
+	//printk("%d %d\n", dx_max, dy_max);
+	
 
 	marker_buf_desc.frame_incomplete=true;
 
@@ -505,6 +451,7 @@ uint16_t display_is_the_marker_touching_pixmap(uint16_t current_x, uint16_t curr
 	return 0x0000;
 }
 
+*/
 
 
 enum states_t {
@@ -521,46 +468,28 @@ int main(void) {
 	uint16_t mk_color=sys_cpu_to_be16(COLOR_RGB_565_RED);
 	uint16_t line_color=sys_cpu_to_be16(COLOR_RGB_565_YELLOW);
 	
-	size_t game_background_id = 0;
 
-	uint16_t* game_backgrounds[BACKGROUND_ELEMENTS];
-
-	game_backgrounds [0] = (uint16_t*) bg_square.pixel_data;
-	game_backgrounds [1] = (uint16_t*) bg_triangle.pixel_data;
-	game_backgrounds [2] = (uint16_t*) bg_hex.pixel_data;
-
-	uint16_t* current_background = game_backgrounds[game_background_id];
 
 
 	enum states_t app_state = start;
-	
-	const struct device *display_dev;
-	//struct display_capabilities capabilities;
 
 	struct int16_xy_pair marker_pos_actual;
 	struct int16_xy_pair marker_pos_new;
 
 	struct mouse_data_element mouse_data_new_element;
 
-	// Get display device from DT
-	display_dev = DEVICE_DT_GET(DT_CHOSEN(zephyr_display));
-	if (!device_is_ready(display_dev)) {
-		LOG_ERR("Device %s not found. Aborting sample.",
-			display_dev->name);
-		return 0;
-	}
-	LOG_INF("Display demo for %s", display_dev->name);
+	LOG_INF("Starting BLE Maze game");
 
 	// Initialize input queue to receive data from BLE task to main task
 	app_input_init();
 
+	app_graphics_init();
 
-	// Get display capabilities for debug
-/* 	display_get_capabilities(display_dev, &capabilities);
-	LOG_INF("Display capabilities:");
-	LOG_INF("Resolution: %dx%d", capabilities.x_resolution, capabilities.y_resolution);
-	LOG_INF("Supported formats: %04x", capabilities.supported_pixel_formats);
-	LOG_INF("Current pixel format: %04x", capabilities.current_pixel_format); */
+	load_background(0);
+
+	draw_marker();
+
+	return 0;
 
 	LOG_INF("01");
 	//display_blanking_on(display_dev);
@@ -571,7 +500,7 @@ int main(void) {
 	LOG_INF("03");
 	ble_hid_app_start();
 	LOG_INF("04");
-
+/*
 	while (1){
 
 		switch (app_state){
@@ -601,7 +530,6 @@ int main(void) {
 			case run_game:
 
 			if (app_input_get_mouse(&mouse_data_new_element, K_FOREVER) == 0){
-
 
 				if (mouse_data_new_element.left_button){
 					// Clean the actual game
@@ -647,11 +575,13 @@ int main(void) {
 
 					uint16_t touched_color = display_is_the_marker_touching_pixmap(x0, y0, current_background);
 					if (touched_color == sys_cpu_to_be16(COLOR_RGB_565_GREEN)){
+						LOG_INF("Drawing: touched finish color");
 						app_state = finish_game;
 						break;
 					}
 
 					if(touched_color != bg_color){
+						LOG_INF("Drawing: touched wall");
 						// it would be okay to stop here, but try to move only one axes
 						app_input_flush();
 						
@@ -713,5 +643,6 @@ int main(void) {
 
 	}
 
+	*/
 	return 0;
 }

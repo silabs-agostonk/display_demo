@@ -1,3 +1,7 @@
+#include "app_display.h"
+
+#if (DISPLAY_W == 480) && (DISPLAY_H == 320)
+
 /* GIMP RGBA C-Source image dump (bg_hex.c) */
 
 const struct {
@@ -9629,3 +9633,4 @@ const struct {
   "`\002`\002",
 };
 
+#endif
