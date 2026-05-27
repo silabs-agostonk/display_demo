@@ -22,8 +22,10 @@ LOG_MODULE_REGISTER(main, LOG_LEVEL_INF);
 #include "app_types.h"
 #include "ble_hid_app.h"
 #include "app_input.h"
+#include "app_display.h"
 #include "app_graphics.h"
 
+#define MARKER_BUF_DIM 11
 
 #define RGB_TO_RGB565(r,g,b) ( (uint16_t)( \
     (((uint16_t)((r) & 0xFF) >> 3) << 11) | \
@@ -51,40 +53,6 @@ LOG_MODULE_REGISTER(main, LOG_LEVEL_INF);
 #define COLOR_RGB_565_BLUE_M	RGB_TO_RGB565(36, 57, 102)
 #define COLOR_RGB_565_RED_M		RGB_TO_RGB565(176, 0, 00)
 
-
-#define BYTES_PER_PIXEL 2
-
-
-#define MARKER_RADIUS 5
-#define MARKER_BUF_DIM 21
-uint16_t marker_draw_buffer [MARKER_BUF_DIM * MARKER_BUF_DIM];
-
-// Variables to check marker borders
-#define MARKER_DRAW_BUFFER_BORDER_ELEMENTS 24
-const struct int16_xy_pair marker_draw_buffer_border [] = {
-	{-2,-4}, {-1,-4}, {0,-4}, {1,-4}, {2,-4},
-	{-3,-3}, {3,-3},
-	{-4,-2}, {4,-2},
-	{-4,-1}, {4,-1},
-	{-4,0}, {4,0},
-	{-4,1}, {4,1},
-	{-4,2}, {4,2},
-	{-3,3}, {3,3},
-	{-2,4}, {-1,4}, {0,4}, {1,4}, {2,4}
-};
-
-// Variables to draw marker buffer
-#define MARKER_DRAW_BUFFER_SEGMENT_ELEMENTS 3
-const struct int16_xy_pair marker_draw_buffer_segment_xy [] = {
-	{-3,-3},
-	{-2,-4},
-	{-4,-2}
-};
-const struct int16_xy_pair marker_draw_buffer_segment_dimensions [] = {
-	{7,7},
-	{5,9},
-	{9,5}
-};
 
 /*
 
@@ -487,40 +455,39 @@ int main(void) {
 
 	load_background(0);
 
-	draw_marker();
+	for (uint8_t x=0; x<30; x++){
+		canvas_draw_line(10+x, 64+x);
+	}
+	draw_marker(10+30, 64+30);
+	
+	
 
-	return 0;
-
-	LOG_INF("01");
 	//display_blanking_on(display_dev);
-	LOG_INF("02");
-
-
-	k_msleep(500);
-	LOG_INF("03");
 	ble_hid_app_start();
-	LOG_INF("04");
-/*
+
 	while (1){
 
 		switch (app_state){
 			case start:
-			display_blanking_on(display_dev);
+			//display_blanking_on(display_dev);
 			// Prepare marker colors
-			display_marker_set_color(mk_color, line_color);
+			//display_marker_set_color(mk_color, line_color);
 			app_state = load_game;
 			break;
 
 			case load_game:
 			// Load background
-			current_background = game_backgrounds[game_background_id];
-			canvas_init();
-			display_load_bg_pixmap_with_conversion(display_dev, current_background);
-			display_blanking_off(display_dev);
+			//current_background = game_backgrounds[game_background_id];
+			//canvas_init();
+			//display_load_bg_pixmap_with_conversion(display_dev, current_background);
+			load_background(0);
+			//display_blanking_off(display_dev);
 
-			marker_pos_actual.x = 15;
-			marker_pos_actual.y = 160;
-			display_marker_draw(display_dev, marker_pos_actual.x, marker_pos_actual.y, marker_pos_actual.x, marker_pos_actual.y);
+			marker_pos_actual.x = 64;
+			marker_pos_actual.y = 64;
+			//display_marker_draw(display_dev, marker_pos_actual.x, marker_pos_actual.y, marker_pos_actual.x, marker_pos_actual.y);
+
+			canvas_draw_line( marker_pos_actual.x, marker_pos_actual.y);
 
 			app_input_flush();
 
@@ -538,8 +505,8 @@ int main(void) {
 				else if (mouse_data_new_element.right_button){
 					// Jump to the next game
 					app_state = load_game;
-					game_background_id++;
-					if (game_background_id == BACKGROUND_ELEMENTS) game_background_id = 0;
+					//game_background_id++;
+					//if (game_background_id == BACKGROUND_ELEMENTS) game_background_id = 0;
 				}
 				// Calculate new position
 				marker_pos_new.x = marker_pos_actual.x + mouse_data_new_element.dx;
@@ -573,7 +540,8 @@ int main(void) {
 					if (e2 > -dy) { err -= dy; x0 += sx; }
 					if (e2 < dx) { err += dx; y0 += sy; }
 
-					uint16_t touched_color = display_is_the_marker_touching_pixmap(x0, y0, current_background);
+					//uint16_t touched_color = display_is_the_marker_touching_pixmap(x0, y0, current_background);
+					uint16_t touched_color = sys_cpu_to_be16(COLOR_RGB_565_BLACK);
 					if (touched_color == sys_cpu_to_be16(COLOR_RGB_565_GREEN)){
 						LOG_INF("Drawing: touched finish color");
 						app_state = finish_game;
@@ -585,11 +553,13 @@ int main(void) {
 						// it would be okay to stop here, but try to move only one axes
 						app_input_flush();
 						
+						/*
 						// move only by X
 						if (!display_is_the_marker_touching_pixmap(x0, marker_pos_actual.y, current_background)){
 							//display_marker_draw(display_dev, marker_pos_actual.x, marker_pos_actual.y, x0, marker_pos_actual.y);
 							canvas_draw_line(x0, marker_pos_actual.y);
-							display_update_from_canvas(display_dev, x0, marker_pos_actual.y, current_background, mk_color, line_color);
+							//display_update_from_canvas(display_dev, x0, marker_pos_actual.y, current_background, mk_color, line_color);
+							draw_marker(x0, marker_pos_actual.y);
 
 							marker_pos_actual.x = x0;
 							break;
@@ -598,8 +568,11 @@ int main(void) {
 						// move only by Y
 						else if (!display_is_the_marker_touching_pixmap(marker_pos_actual.x, y0, current_background)){
 							//display_marker_draw(display_dev, marker_pos_actual.x, marker_pos_actual.y, marker_pos_actual.x, y0);
+							//canvas_draw_line(marker_pos_actual.x, y0);
+							//display_update_from_canvas(display_dev, marker_pos_actual.x, y0, current_background, mk_color, line_color);
 							canvas_draw_line(marker_pos_actual.x, y0);
-							display_update_from_canvas(display_dev, marker_pos_actual.x, y0, current_background, mk_color, line_color);
+							//display_update_from_canvas(display_dev, x0, marker_pos_actual.y, current_background, mk_color, line_color);
+							draw_marker(marker_pos_actual.x, y0);
 
 							marker_pos_actual.y = y0;
 							break;
@@ -608,6 +581,7 @@ int main(void) {
 						else {
 							// nothing left to do here
 						}
+						*/
 						
 						break;
 					}
@@ -615,7 +589,8 @@ int main(void) {
 						canvas_draw_line(x0, y0);
 						if (k_step_cnt % 5 == 0){
 							//display_marker_draw(display_dev, marker_pos_actual.x, marker_pos_actual.y, x0, y0);
-							display_update_from_canvas(display_dev, x0, y0, current_background, mk_color, line_color);
+							//display_update_from_canvas(display_dev, x0, y0, current_background, mk_color, line_color);
+							draw_marker(x0, y0);
 							marker_pos_actual.x = x0;
 							marker_pos_actual.y = y0;
 						}
@@ -630,8 +605,8 @@ int main(void) {
 			// Would be great to display some text
 			k_msleep(500);
 			
-			game_background_id++;
-			if (game_background_id == BACKGROUND_ELEMENTS) game_background_id = 0;
+			//game_background_id++;
+			//if (game_background_id == BACKGROUND_ELEMENTS) game_background_id = 0;
 
 			app_state = load_game;
 			break;
@@ -642,7 +617,5 @@ int main(void) {
 		}
 
 	}
-
-	*/
 	return 0;
 }
