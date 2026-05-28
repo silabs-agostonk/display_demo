@@ -24,9 +24,11 @@ LOG_MODULE_REGISTER(main, LOG_LEVEL_INF);
 #include "app_input.h"
 #include "app_display.h"
 #include "app_graphics.h"
+#include "app_graphics_marker.h"
 
 #define MARKER_BUF_DIM 11
 
+/*
 #define RGB_TO_RGB565(r,g,b) ( (uint16_t)( \
     (((uint16_t)((r) & 0xFF) >> 3) << 11) | \
     (((uint16_t)((g) & 0xFF) >> 2) <<  5) | \
@@ -52,7 +54,7 @@ LOG_MODULE_REGISTER(main, LOG_LEVEL_INF);
 #define COLOR_RGB_565_YELLOW	RGB_TO_RGB565(255, 208, 84)
 #define COLOR_RGB_565_BLUE_M	RGB_TO_RGB565(36, 57, 102)
 #define COLOR_RGB_565_RED_M		RGB_TO_RGB565(176, 0, 00)
-
+*/
 
 /*
 
@@ -453,12 +455,12 @@ int main(void) {
 
 	app_graphics_init();
 
-	load_background(0);
+	//load_background(0);
 
-	for (uint8_t x=0; x<30; x++){
-		canvas_draw_line(10+x, 64+x);
-	}
-	draw_marker(10+30, 64+30);
+	//for (uint8_t x=0; x<30; x++){
+	//	canvas_draw(10+x, 64+x);
+	//}
+	//draw_marker(10+30, 64+30);
 	
 	
 
@@ -471,24 +473,21 @@ int main(void) {
 			case start:
 			//display_blanking_on(display_dev);
 			// Prepare marker colors
-			//display_marker_set_color(mk_color, line_color);
 			app_state = load_game;
 			break;
 
 			case load_game:
 			// Load background
-			//current_background = game_backgrounds[game_background_id];
-			//canvas_init();
-			//display_load_bg_pixmap_with_conversion(display_dev, current_background);
-			load_background(0);
+			canvas_clean();
+			load_background();
 			//display_blanking_off(display_dev);
 
-			marker_pos_actual.x = 64;
-			marker_pos_actual.y = 64;
-			//display_marker_draw(display_dev, marker_pos_actual.x, marker_pos_actual.y, marker_pos_actual.x, marker_pos_actual.y);
+			marker_pos_actual.x = 10;
+			marker_pos_actual.y = DISPLAY_H / 2;
 
-			canvas_draw_line( marker_pos_actual.x, marker_pos_actual.y);
-
+			canvas_draw(marker_pos_actual.x, marker_pos_actual.y);
+			draw_marker(marker_pos_actual.x, marker_pos_actual.y);
+		
 			app_input_flush();
 
 			app_state = run_game;
@@ -501,23 +500,26 @@ int main(void) {
 				if (mouse_data_new_element.left_button){
 					// Clean the actual game
 					app_state = load_game;
+					break;
 				}
 				else if (mouse_data_new_element.right_button){
 					// Jump to the next game
 					app_state = load_game;
-					//game_background_id++;
-					//if (game_background_id == BACKGROUND_ELEMENTS) game_background_id = 0;
+					next_background();
+					break;
 				}
 				// Calculate new position
 				marker_pos_new.x = marker_pos_actual.x + mouse_data_new_element.dx;
 				marker_pos_new.y = marker_pos_actual.y + mouse_data_new_element.dy;
+
+
 				
 				// Keep new position within display
-				if (marker_pos_new.x > DISPLAY_W - MARKER_BUF_DIM / 2 - 1) marker_pos_new.x = DISPLAY_W - MARKER_BUF_DIM / 2 - 1;
-				if (marker_pos_new.x < MARKER_BUF_DIM / 2 + 1) marker_pos_new.x = MARKER_BUF_DIM / 2 + 1;
+				if (marker_pos_new.x > DISPLAY_W - MARKER_BUF_MIN_WIDTH / 2 - 1) marker_pos_new.x = DISPLAY_W - MARKER_BUF_MIN_WIDTH / 2 - 1;
+				if (marker_pos_new.x < MARKER_BUF_MIN_WIDTH / 2 + 1) marker_pos_new.x = MARKER_BUF_MIN_WIDTH / 2 + 1;
 
-				if (marker_pos_new.y > DISPLAY_H - MARKER_BUF_DIM / 2 - 1) marker_pos_new.y = DISPLAY_H - MARKER_BUF_DIM / 2 - 1;
-				if (marker_pos_new.y < MARKER_BUF_DIM / 2 + 1) marker_pos_new.y = MARKER_BUF_DIM / 2 + 1;
+				if (marker_pos_new.y > DISPLAY_H - MARKER_BUF_MIN_HEIGHT / 2 - 1) marker_pos_new.y = DISPLAY_H - MARKER_BUF_MIN_HEIGHT / 2 - 1;
+				if (marker_pos_new.y < MARKER_BUF_MIN_HEIGHT / 2 + 1) marker_pos_new.y = MARKER_BUF_MIN_HEIGHT / 2 + 1;
 				
 				// Draw a line with Bresenham’s algorithm
 				uint16_t x0 = marker_pos_actual.x;
@@ -540,25 +542,24 @@ int main(void) {
 					if (e2 > -dy) { err -= dy; x0 += sx; }
 					if (e2 < dx) { err += dx; y0 += sy; }
 
-					//uint16_t touched_color = display_is_the_marker_touching_pixmap(x0, y0, current_background);
-					uint16_t touched_color = sys_cpu_to_be16(COLOR_RGB_565_BLACK);
-					if (touched_color == sys_cpu_to_be16(COLOR_RGB_565_GREEN)){
+					touch_elements_t touched;
+					touched = marker_touching(x0, y0);
+
+					if (touched_finish_line == touched){
 						LOG_INF("Drawing: touched finish color");
 						app_state = finish_game;
 						break;
 					}
 
-					if(touched_color != bg_color){
+					if(touched_wall == touched){
 						LOG_INF("Drawing: touched wall");
 						// it would be okay to stop here, but try to move only one axes
+						// it makes the app more responsive
 						app_input_flush();
 						
-						/*
 						// move only by X
-						if (!display_is_the_marker_touching_pixmap(x0, marker_pos_actual.y, current_background)){
-							//display_marker_draw(display_dev, marker_pos_actual.x, marker_pos_actual.y, x0, marker_pos_actual.y);
-							canvas_draw_line(x0, marker_pos_actual.y);
-							//display_update_from_canvas(display_dev, x0, marker_pos_actual.y, current_background, mk_color, line_color);
+						if (marker_touching(x0, marker_pos_actual.y) != touched_wall){
+							canvas_draw(x0, marker_pos_actual.y);
 							draw_marker(x0, marker_pos_actual.y);
 
 							marker_pos_actual.x = x0;
@@ -566,12 +567,8 @@ int main(void) {
 						}
 
 						// move only by Y
-						else if (!display_is_the_marker_touching_pixmap(marker_pos_actual.x, y0, current_background)){
-							//display_marker_draw(display_dev, marker_pos_actual.x, marker_pos_actual.y, marker_pos_actual.x, y0);
-							//canvas_draw_line(marker_pos_actual.x, y0);
-							//display_update_from_canvas(display_dev, marker_pos_actual.x, y0, current_background, mk_color, line_color);
-							canvas_draw_line(marker_pos_actual.x, y0);
-							//display_update_from_canvas(display_dev, x0, marker_pos_actual.y, current_background, mk_color, line_color);
+						else if (marker_touching(marker_pos_actual.x, y0) != touched_wall){
+							canvas_draw(marker_pos_actual.x, y0);
 							draw_marker(marker_pos_actual.x, y0);
 
 							marker_pos_actual.y = y0;
@@ -581,13 +578,12 @@ int main(void) {
 						else {
 							// nothing left to do here
 						}
-						*/
 						
 						break;
 					}
 					else {
-						canvas_draw_line(x0, y0);
-						if (k_step_cnt % 5 == 0){
+						canvas_draw(x0, y0);
+						if (k_step_cnt % 1 == 0){
 							//display_marker_draw(display_dev, marker_pos_actual.x, marker_pos_actual.y, x0, y0);
 							//display_update_from_canvas(display_dev, x0, y0, current_background, mk_color, line_color);
 							draw_marker(x0, y0);
@@ -607,6 +603,7 @@ int main(void) {
 			
 			//game_background_id++;
 			//if (game_background_id == BACKGROUND_ELEMENTS) game_background_id = 0;
+			next_background();
 
 			app_state = load_game;
 			break;

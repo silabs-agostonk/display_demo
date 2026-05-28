@@ -23,4 +23,11 @@ typedef struct {
   unsigned char	 pixel_data[480 * 320 * 2 + 1];
 } c_image;
 
+typedef enum {
+  touched_background,
+  touched_wall,
+  touched_finish_line,
+  touched_display_border
+} touch_elements_t;
+
 #endif /* APP_TYPES_H */

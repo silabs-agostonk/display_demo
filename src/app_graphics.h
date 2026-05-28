@@ -19,22 +19,35 @@ extern "C" {
 extern uint8_t canvas_bitmap[];
 
 // Images from src/bg_*.c
-#define BACKGROUND_ELEMENTS 1
+#define BACKGROUND_ELEMENTS 3
 extern const c_image bg_hex;
 extern const c_image bg_square;
 extern const c_image bg_triangle;
 extern const c_image bg_test;
 
 // https://codebox.net/pages/maze-generator/online
+
+// For 320x240 display:
 // Square 14x10 Seed: 857133801
 // Triangle 22x10 Seed: 741051981
 // Hex 12x10 Seed: 620715798
 
+// for 128x128 display:
+// Square 7X7 Seed: 446683954
+// Triangle 10x7 Seed: 991189289
+// Hex 4x5 Seed: 396377894
+
+
 uint8_t app_graphics_init();
 
-extern int (*load_background)(uint8_t);
+extern int (*load_background)();
 extern int (*draw_marker)(uint16_t, uint16_t);
-uint8_t canvas_draw_line(uint16_t x0, uint16_t y0);
+uint8_t canvas_draw(uint16_t x0, uint16_t y0);
+void canvas_clean();
+void next_background();
+
+touch_elements_t marker_touching(uint16_t x0, uint16_t y0);
+
 
 #define RGB_TO_RGB565(r,g,b) ( (uint16_t)( \
     (((uint16_t)((r) & 0xFF) >> 3) << 11) | \

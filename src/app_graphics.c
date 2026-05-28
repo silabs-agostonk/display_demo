@@ -1,5 +1,6 @@
 
 #include "app_graphics.h"
+#include "app_graphics_marker.h"
 #include "app_display.h"
 #include <zephyr/drivers/display.h>
 #include <zephyr/sys/byteorder.h>
@@ -10,135 +11,20 @@ LOG_MODULE_REGISTER(app_graphics, LOG_LEVEL_INF);
 
 const struct device *display_dev = DEVICE_DT_GET(DT_CHOSEN(zephyr_display));
 struct display_capabilities display_dev_capabilities; // can be local in init func?
-/*
-#if (DISPLAY_W <= 64) || (DISPLAY_H <= 64)
-// for tiny displays (radius 3)
-#define LINE_WIDTH 1
-#define MARKER_BUF_DIM 9
-#define MARKER_BUF_MIN_WIDTH 5
-#define MARKER_BUF_MIN_HEIGHT 5
-#define MARKER_DRAW_BUFFER_SEGMENT_ELEMENTS 1
-const struct int16_xy_pair marker_draw_buffer_segment_xy [] = {
-	{-1,-1}
-};
-const struct int16_xy_pair marker_draw_buffer_segment_dimensions [] = {
-    {3,3}
-};
-
-#define MARKER_DRAW_BUFFER_BORDER_ELEMENTS 8
-const struct int16_xy_pair marker_draw_buffer_border [] = {
-	{-1,-1}, {0,-1}, {1,-1},
-	{-1,0}, {1,0},
-	{-1,1}, {0,1}, {1,1}
-};
-
-#elif (DISPLAY_W <= 128) || (DISPLAY_H <= 128)
-// for small displays (radius: 5)
-#define LINE_WIDTH 1
-#define MARKER_BUF_DIM 9
-#define MARKER_BUF_MIN_WIDTH 7
-#define MARKER_BUF_MIN_HEIGHT 7
-#define MARKER_DRAW_BUFFER_SEGMENT_ELEMENTS 2
-const struct int16_xy_pair marker_draw_buffer_segment_xy [] = {
-    {-1,-2},
-    {-2,-1}
-};
-const struct int16_xy_pair marker_draw_buffer_segment_dimensions [] = {
-    {3,5},
-    {5,3}
-};
-
-#define MARKER_DRAW_BUFFER_BORDER_ELEMENTS 12
-const struct int16_xy_pair marker_draw_buffer_border [] = {
-    {-1,-2}, {0,-2}, {1,-2},
-    {-2,-1}, {2,-1},
-    {-2,0}, {2,0},
-    {-2,1}, {2,1},
-    {-1,2}, {0,2}, {1,2}
-};
-
-#elif (DISPLAY_W <= 320) || (DISPLAY_H <= 320)
-// for middle sized and bigger displays (radius: 9)
-#define LINE_WIDTH 3
-#define MARKER_BUF_DIM 21
-#define MARKER_BUF_MIN_WIDTH 9
-#define MARKER_BUF_MIN_HEIGHT 9
-#define MARKER_DRAW_BUFFER_SEGMENT_ELEMENTS 3
-const struct int16_xy_pair marker_draw_buffer_segment_xy [] = {
-	{-3,-3},
-	{-2,-4},
-	{-4,-2}
-};
-const struct int16_xy_pair marker_draw_buffer_segment_dimensions [] = {
-	{7,7},
-	{5,9},
-	{9,5}
-};
-#define MARKER_DRAW_BUFFER_BORDER_ELEMENTS 24
-const struct int16_xy_pair marker_draw_buffer_border [] = {
-	{-2,-4}, {-1,-4}, {0,-4}, {1,-4}, {2,-4},
-	{-3,-3}, {3,-3},
-	{-4,-2}, {4,-2},
-	{-4,-1}, {4,-1},
-	{-4,0}, {4,0},
-	{-4,1}, {4,1},
-	{-4,2}, {4,2},
-	{-3,3}, {3,3},
-	{-2,4}, {-1,4}, {0,4}, {1,4}, {2,4}
-};
-
-#else
-*/
-// for larger displays (radius: 11)
-#define LINE_WIDTH 5
-#define MARKER_BUF_DIM 21
-#define MARKER_BUF_MIN_WIDTH 13
-#define MARKER_BUF_MIN_HEIGHT 13
-#define MARKER_DRAW_BUFFER_SEGMENT_ELEMENTS 4
-const struct int16_xy_pair marker_draw_buffer_segment_xy [] = {
-	{-2,-5},
-	{-3,-4},
-	{-4,-3},
-	{-5,-2}
-};
-const struct int16_xy_pair marker_draw_buffer_segment_dimensions [] = {
-	{5,11},
-	{7,9},
-	{9,7},
-	{11,5}
-};
-#define MARKER_DRAW_BUFFER_BORDER_ELEMENTS 28
-const struct int16_xy_pair marker_draw_buffer_border [] = {
-	{-2,-5}, {-1,-5}, {0,-5}, {1,-5}, {2,-5},
-	{-3,-4}, {3,-4},
-	{-4,-3}, {4,-3},
-	{-5,-2}, {5,-2},
-	{-5,-1}, {5,-1},
-	{-5,0}, {5,0},
-	{-5,1}, {5,1},
-	{-5,2}, {5,2},
-	{-4,3}, {4,3},
-	{-3,4}, {3,4},
-	{-2,5}, {-1,5}, {0,5}, {1,5}, {2,5}
-};
-
-//#endif
-
-
 
 /* Canvas to store the drawn line in background
    It makes possible to use different color
    for the drawn line and for marker */
 uint8_t canvas_bitmap [(DISPLAY_W * DISPLAY_H) / 8] = {0};
-void init_canvas_bitmap();
-uint8_t canvas_draw_line(uint16_t x0, uint16_t y0);
+void canvas_clean();
+uint8_t canvas_draw(uint16_t x0, uint16_t y0);
 uint16_t canvas_set_pixel(uint16_t x, uint16_t y);
 uint8_t canvas_get_pixel(uint16_t x, uint16_t y);
 static inline uint8_t canvas_get_pixel_inline(uint16_t x, uint16_t y);
 
 
 enum display_pixel_format display_dev_pixel_format; // maybe not needed
-size_t display_dev_bits_per_pixel;
+size_t display_dev_bits_per_pixel=0;
 
 /* One line buffer for display: for updating the complete screen faster
    Allocated once dynamically in app_graphics_init
@@ -164,9 +50,9 @@ size_t game_background_id = 0;
 uint16_t* game_backgrounds[BACKGROUND_ELEMENTS];
 uint16_t* current_background;
 
-int (*load_background)(uint8_t);
-int load_background_mono(uint8_t bg_id);
-int load_background_rgb565(uint8_t bg_id);
+int (*load_background)();
+int load_background_mono();
+int load_background_rgb565();
 
 int (*draw_marker)(uint16_t, uint16_t);
 int draw_marker_mono(uint16_t x, uint16_t y);
@@ -175,6 +61,7 @@ int draw_marker_rgb565(uint16_t x, uint16_t y);
 uint16_t bg_color;
 uint16_t mk_color;
 uint16_t line_color;
+uint16_t finish_color;
 
 uint8_t app_graphics_init(){
 	
@@ -202,7 +89,8 @@ uint8_t app_graphics_init(){
 
 		bg_color=sys_cpu_to_be16(COLOR_RGB_565_BLACK);
 		mk_color=sys_cpu_to_be16(COLOR_RGB_565_WHITE);
-		line_color = sys_cpu_to_be16(COLOR_RGB_565_YELLOW);
+		line_color = sys_cpu_to_be16(COLOR_RGB_565_WHITE);
+		finish_color = sys_cpu_to_be16(COLOR_RGB_565_GREEN);
 
         break;
     case PIXEL_FORMAT_RGB_565:
@@ -216,22 +104,31 @@ uint8_t app_graphics_init(){
 		bg_color=sys_cpu_to_be16(COLOR_RGB_565_BLACK);
 		mk_color=sys_cpu_to_be16(COLOR_RGB_565_RED);
 		line_color = sys_cpu_to_be16(COLOR_RGB_565_YELLOW);
+		finish_color = sys_cpu_to_be16(COLOR_RGB_565_GREEN);
 
         break;
     
     default:
-        display_dev_bits_per_pixel = 0;
+		LOG_ERR("The current display format is not supported.");
         return -1;
     }
 
-    game_backgrounds [0] = (uint16_t*) bg_test.pixel_data;
-    //game_backgrounds [1] = (uint16_t*) bg_triangle.pixel_data;
-    //game_backgrounds [2] = (uint16_t*) bg_hex.pixel_data;
+    game_backgrounds [0] = (uint16_t*) bg_square.pixel_data;
+    game_backgrounds [1] = (uint16_t*) bg_triangle.pixel_data;
+    game_backgrounds [2] = (uint16_t*) bg_hex.pixel_data;
+	//game_backgrounds [3] = (uint16_t*) bg_test.pixel_data;
 
+	game_background_id = 0;
     current_background = game_backgrounds[game_background_id];
 
     return 0;
 
+}
+
+void next_background(){
+	game_background_id++;
+	game_background_id %= BACKGROUND_ELEMENTS;
+	current_background = game_backgrounds[game_background_id];
 }
 
 uint8_t init_display_dev_row_buf(){
@@ -254,7 +151,7 @@ uint8_t init_display_dev_row_buf(){
 uint8_t init_marker_draw_buf_mono(){
     marker_draw_buf = k_malloc(DISPLAY_W * MARKER_BUF_MIN_HEIGHT * display_dev_bits_per_pixel / 8);
 	if (marker_draw_buf == NULL) {
-        LOG_ERR("Failed to allocate buffer for cleaning the screen.");
+        LOG_ERR("Failed to allocate buffer for drawing marker.");
 		return -1;
 	}
 
@@ -285,11 +182,11 @@ uint8_t init_marker_draw_buf_rgb565(){
     return 0;
 }
 
-void init_canvas_bitmap(){
+void canvas_clean(){
 	memset(canvas_bitmap, 0x00, (DISPLAY_W * DISPLAY_H) / 8);
 }
 
-uint8_t canvas_draw_line(uint16_t x0, uint16_t y0){
+uint8_t canvas_draw(uint16_t x0, uint16_t y0){
     int16_t w = LINE_WIDTH / 2;
 	for(int16_t y = -w; y <= w; y++){
 		for(int16_t x = -w; x <= w; x++){
@@ -376,12 +273,12 @@ static inline bool rgb565_to_mono_dither(uint16_t rgb565, size_t x, size_t y)
 }
 
 
-int load_background_mono(uint8_t bg_id){
-    uint16_t *pixel_data_b16 = game_backgrounds[bg_id];
+int load_background_mono(){
+    uint16_t *pixel_data_b16 = current_background;
     uint8_t *row_buf = (uint8_t *)display_dev_row_buf;
     int ret;
 
-    LOG_INF("Loading background for Mono display: #%d", bg_id);
+    LOG_INF("Loading background for Mono display.");
 
     for (size_t y=0; y < DISPLAY_H; y++){
         memset(row_buf, 0, display_dev_row_buf_desc.buf_size);
@@ -405,13 +302,13 @@ int load_background_mono(uint8_t bg_id){
     return 0;
 }
 
-int load_background_rgb565(uint8_t bg_id){
-    uint16_t *pixel_data_b16 = game_backgrounds[bg_id];
+int load_background_rgb565(){
+    uint16_t *pixel_data_b16 = current_background;
     uint16_t *row_buf = (uint16_t *)display_dev_row_buf;
 
     int ret;
 
-    LOG_INF("Loading background for RGB565 display: #%d", bg_id);
+    LOG_INF("Loading background for RGB565 display");
 	for (size_t y=0; y < DISPLAY_H; y++){
 		for (size_t x=0; x < DISPLAY_W; x++){
 			row_buf[x] = (uint16_t) sys_cpu_to_be16(pixel_data_b16[x + y*DISPLAY_W]);
@@ -426,7 +323,7 @@ int load_background_rgb565(uint8_t bg_id){
 }
 
 int draw_marker_mono(uint16_t x0, uint16_t y0){
-    uint16_t *pixel_data_b16 = game_backgrounds[0];
+    uint16_t *pixel_data_b16 = current_background;
     uint8_t *marker_buf = (uint8_t *)marker_draw_buf;
     int ret;
 
@@ -503,4 +400,32 @@ int draw_marker_rgb565(uint16_t x0, uint16_t y0){
     struct display_buffer_descriptor marker_draw_buf_desc;
     uint8_t init_marker_draw_buf();
 
+}
+
+touch_elements_t marker_touching(uint16_t x0, uint16_t y0){
+	int16_t x, y;
+	int16_t *pixel_data_b16 = current_background;
+
+	for (size_t i=0; i < MARKER_DRAW_BUFFER_BORDER_ELEMENTS; i++){
+		x = x0 + marker_draw_buffer_border[i].x;
+		y = y0 + marker_draw_buffer_border[i].y;
+
+		// touched_display_border
+		// its also handled in game logic
+		if (x < 0 || y < 0 || x > DISPLAY_W - 1 || y > DISPLAY_H - 1) return touched_display_border;
+
+		// touched_finish_line
+		if (sys_cpu_to_be16(pixel_data_b16[y * DISPLAY_W + x]) == finish_color){
+			// If not black, return the touched color:
+			return touched_finish_line;
+		}
+		// touched_wall
+		else if (sys_cpu_to_be16(pixel_data_b16[y * DISPLAY_W + x]) != bg_color){
+			// If not black, return the touched color:
+			return touched_wall;
+		}
+	}
+
+	// If nothing touched
+	return touched_background;
 }
