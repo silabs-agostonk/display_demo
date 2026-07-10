@@ -13,20 +13,86 @@
 #error "Define devicetree alias app-led"
 #endif
 
-#define BLINK_SLOW_MS 500
-#define BLINK_FAST_MS 100
+#define BLINK_FAST_ON_MS    100
+#define BLINK_FAST_OFF_MS   100
+
+#define BLINK_SLOW_ON_MS    100
+#define BLINK_SLOW_OFF_MS   900
 
 static const struct gpio_dt_spec led = GPIO_DT_SPEC_GET(LED_NODE, gpios);
 
-static struct k_timer blink_timer;
-static bool led_state;
+struct led_step {
+	bool on;
+	uint32_t duration_ms;
+};
 
-static void blink_timer_handler(struct k_timer *timer)
+static const struct led_step blink_slow_pattern[] = {
+	{ true,  100 },
+	{ false, 900 },
+};
+
+static const struct led_step blink_fast_pattern[] = {
+	{ true,  100 },
+	{ false, 100 },
+};
+
+static const struct led_step heartbeat_pattern[] = {
+	{ true,  100 },
+	{ false, 100 },
+	{ true,  100 },
+	{ false, 700 },
+};
+
+static struct k_work_delayable led_work;
+
+static const struct led_step *active_pattern;
+static size_t active_pattern_len;
+static size_t active_step;
+
+static void led_work_handler(struct k_work *work)
 {
-	ARG_UNUSED(timer);
+	ARG_UNUSED(work);
 
-	led_state = !led_state;
-	gpio_pin_set_dt(&led, led_state);
+	if (active_pattern == NULL || active_pattern_len == 0) {
+		return;
+	}
+
+	const struct led_step *step = &active_pattern[active_step];
+
+	gpio_pin_set_dt(&led, step->on);
+
+	active_step++;
+	if (active_step >= active_pattern_len) {
+		active_step = 0;
+	}
+
+	k_work_schedule(&led_work, K_MSEC(step->duration_ms));
+}
+
+static int led_pattern_start(const struct led_step *pattern, size_t pattern_len)
+{
+	if (pattern == NULL || pattern_len == 0) {
+		return -EINVAL;
+	}
+
+	k_work_cancel_delayable(&led_work);
+
+	active_pattern = pattern;
+	active_pattern_len = pattern_len;
+	active_step = 0;
+
+	k_work_schedule(&led_work, K_NO_WAIT);
+
+	return 0;
+}
+
+static void led_pattern_stop(void)
+{
+	k_work_cancel_delayable(&led_work);
+
+	active_pattern = NULL;
+	active_pattern_len = 0;
+	active_step = 0;
 }
 
 int app_led_init(void)
@@ -40,41 +106,41 @@ int app_led_init(void)
 		return ret;
 	}
 
-	k_timer_init(&blink_timer, blink_timer_handler, NULL);
+	k_work_init_delayable(&led_work, led_work_handler);
+
+	active_pattern = NULL;
+	active_pattern_len = 0;
+	active_step = 0;
+
 	return 0;
 }
 
 int app_led_on(void)
 {
-	k_timer_stop(&blink_timer);
-
-	led_state = true;
+	led_pattern_stop();
 	return gpio_pin_set_dt(&led, 1);
 }
 
 int app_led_off(void)
 {
-	k_timer_stop(&blink_timer);
-
-	led_state = false;
+	led_pattern_stop();
 	return gpio_pin_set_dt(&led, 0);
-}
-
-static int app_led_blink(uint32_t period_ms)
-{
-	led_state = false;
-	gpio_pin_set_dt(&led, 0);
-
-	k_timer_start(&blink_timer, K_MSEC(period_ms), K_MSEC(period_ms));
-	return 0;
 }
 
 int app_led_blink_slow(void)
 {
-	return app_led_blink(BLINK_SLOW_MS);
+	return led_pattern_start(blink_slow_pattern,
+				 ARRAY_SIZE(blink_slow_pattern));
 }
 
 int app_led_blink_fast(void)
 {
-	return app_led_blink(BLINK_FAST_MS);
+	return led_pattern_start(blink_fast_pattern,
+				 ARRAY_SIZE(blink_fast_pattern));
+}
+
+int app_led_heartbeat(void)
+{
+	return led_pattern_start(heartbeat_pattern,
+				 ARRAY_SIZE(heartbeat_pattern));
 }

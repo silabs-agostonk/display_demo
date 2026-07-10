@@ -7,5 +7,6 @@ int app_led_on(void);
 int app_led_off(void);
 int app_led_blink_slow(void);
 int app_led_blink_fast(void);
+int app_led_heartbeat(void);
 
 #endif
