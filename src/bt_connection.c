@@ -17,7 +17,11 @@
 #include <zephyr/sys/byteorder.h>
 #include <zephyr/types.h>
 
+#include <zephyr/dt-bindings/input/input-event-codes.h>
+
+
 #include "app_input.h"
+#include "app_led.h"
 #include "app_types.h"
 #include "ble_hid_app.h"
 #include "hid_mouse.h"
@@ -488,6 +492,7 @@ static void hids_discovery_done(struct ble_hid_ctx *ctx)
     ctx->hids.discovery_step = HIDS_DISCOVERY_STEP_DONE;
     set_state(ctx, BLE_LINK_READY);
     LOG_INF("HIDS client ready");
+    app_led_off();
 }
 
 static int hids_discovery_start(struct ble_hid_ctx *ctx, struct bt_conn *conn)
@@ -868,7 +873,7 @@ static void disconnected(struct bt_conn *conn, uint8_t reason)
     bt_addr_le_to_str(bt_conn_get_dst(conn), addr, sizeof(addr));
     LOG_INF("Disconnected: %s reason 0x%02x %s",
             addr, reason, bt_hci_err_to_str(reason));
-
+    app_led_blink_slow();
     if (!conn_is_current(ctx, conn)) {
         return;
     }
@@ -1048,6 +1053,11 @@ static void set_pairing_mode_internal(struct ble_hid_ctx *ctx, bool enable)
 
     ctx->pairing_mode = enable;
     LOG_INF("Pairing mode %s", enable ? "enabled" : "disabled");
+    if(enable) {
+        app_led_blink_fast();
+    } else {
+        app_led_off();
+    }
 
     if (ctx->state == BLE_LINK_DISABLED || ctx->state == BLE_LINK_ENABLING) {
         return;
@@ -1109,6 +1119,7 @@ static void bt_ready_cb(int err)
     set_state(ctx, BLE_LINK_IDLE);
 
     LOG_INF("Bluetooth initialized");
+    app_led_blink_slow();
 
     if (ctx->pairing_mode) {
         (void)k_work_schedule(&ctx->pairing_timeout_work, PAIRING_MODE_TIMEOUT);
@@ -1145,6 +1156,7 @@ void bt_connection_enable(void)
 
 void ble_hid_app_start(void)
 {
+    app_led_init();
     bt_connection_enable();
 }
 
@@ -1156,7 +1168,7 @@ static void button_input_cb(struct input_event *evt, void *user_data)
         return;
     }
 
-    if (evt->code != 2) {
+    if (evt->code != INPUT_KEY_0) {
         return;
     }
 
