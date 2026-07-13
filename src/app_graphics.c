@@ -327,7 +327,7 @@ int draw_marker_mono(uint16_t x0, uint16_t y0){
     uint8_t *marker_buf = (uint8_t *)marker_draw_buf;
     int ret;
 
-	LOG_INF("draw_marker_mono %d %d", x0, y0);
+	LOG_DBG("draw_marker_mono x0:%d y0:%d", x0, y0);
 
     // Fill marker buffer with canvas data
     // (or with background if there is no line)
@@ -386,6 +386,7 @@ int draw_marker_mono(uint16_t x0, uint16_t y0){
 	}
 
     // Write buffer to display:
+	LOG_DBG("draw_marker_mono x0:%d y0:%d w:%d h:%d", 0, y0 - MARKER_BUF_MIN_HEIGHT / 2, marker_draw_buf_desc.width, marker_draw_buf_desc.height);
 	ret = display_write(display_dev, 0, y0 - MARKER_BUF_MIN_HEIGHT / 2, &marker_draw_buf_desc, marker_buf);
 	if (ret < 0) {
 		LOG_ERR("Failed to write to display (error %d)", ret);
