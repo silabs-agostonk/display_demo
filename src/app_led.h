@@ -1,3 +1,10 @@
+/*
+ * Copyright (c) 2026 Silicon Laboratories Inc.
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+
 #ifndef APP_LED_H_
 #define APP_LED_H_
 

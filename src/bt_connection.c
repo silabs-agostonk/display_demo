@@ -1,4 +1,11 @@
-﻿#include <errno.h>
+﻿/*
+ * Copyright (c) 2026 Silicon Laboratories Inc.
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+
+ #include <errno.h>
 #include <inttypes.h>
 #include <stddef.h>
 #include <stdint.h>

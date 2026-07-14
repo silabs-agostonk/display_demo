@@ -1,3 +1,10 @@
+/*
+ * Copyright (c) 2026 Silicon Laboratories Inc.
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+
 #include "app_graphics_marker.h"
 
 #if (DISPLAY_W <= 64) || (DISPLAY_H <= 64)

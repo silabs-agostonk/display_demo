@@ -1,4 +1,14 @@
-/* GIMP RGBA C-Source image dump (bg_square_128x128.c) */
+/*
+ * Copyright (c) 2026 Silicon Laboratories Inc.
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include "app_display.h"
+
+#if (DISPLAY_W == 128) && (DISPLAY_H == 128)
+
+ /* GIMP RGBA C-Source image dump (bg_square_128x128.c) */
 
 const struct {
   unsigned int 	 width;
@@ -1047,3 +1057,4 @@ const struct {
   "\377\377\377\377\377\377\377\377\377\377\377\377\377\377\377",
 };
 
+#endif

@@ -1,4 +1,6 @@
 /*
+ * Copyright (c) 2026 Silicon Laboratories Inc.
+ *
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -41,10 +43,6 @@ int hid_mouse_decode_report(const struct hid_mouse_parser *parser,
 			    const uint8_t *data,
 			    size_t length,
 			    struct mouse_data_element *mouse_data);
-
-int hid_mouse_decode_logitech_m196(const uint8_t *data,
-				   size_t length,
-				   struct mouse_data_element *mouse_data);
 
 #ifdef __cplusplus
 }

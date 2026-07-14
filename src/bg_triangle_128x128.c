@@ -1,3 +1,13 @@
+/*
+ * Copyright (c) 2026 Silicon Laboratories Inc.
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include "app_display.h"
+
+#if (DISPLAY_W == 128) && (DISPLAY_H == 128)
+
 /* GIMP RGBA C-Source image dump (bg_triangle_128x128.c) */
 
 const struct {
@@ -1047,3 +1057,4 @@ const struct {
   "\377\377\377\377\377\377\377\235\357\000\004\000\004\000\004\000\004\000\004\000\004",
 };
 
+#endif

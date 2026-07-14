@@ -1,4 +1,6 @@
 /*
+ * Copyright (c) 2026 Silicon Laboratories Inc.
+ *
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -11,7 +13,6 @@
 extern "C" {
 #endif
 
-
 #define DISPLAY_NODE DT_CHOSEN(zephyr_display)
 BUILD_ASSERT(DT_NODE_HAS_STATUS(DISPLAY_NODE, okay), "zephyr,display node is not okay");
 
@@ -20,8 +21,6 @@ BUILD_ASSERT(DT_NODE_HAS_STATUS(DISPLAY_NODE, okay), "zephyr,display node is not
 
 extern const struct device *display_dev;
 extern struct display_capabilities display_dev_capabilities;
-
-
 
 #ifdef __cplusplus
 }

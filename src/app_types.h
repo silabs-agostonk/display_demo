@@ -1,4 +1,10 @@
-/* app_types.h */
+/*
+ * Copyright (c) 2026 Silicon Laboratories Inc.
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+
 #ifndef APP_TYPES_H
 #define APP_TYPES_H
 

@@ -1,3 +1,9 @@
+/*
+ * Copyright (c) 2026 Silicon Laboratories Inc.
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 #include "app_display.h"
 
 #if (DISPLAY_W == 480) && (DISPLAY_H == 320)

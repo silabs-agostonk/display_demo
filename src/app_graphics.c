@@ -1,3 +1,8 @@
+/*
+ * Copyright (c) 2026 Silicon Laboratories Inc.
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
 
 #include "app_graphics.h"
 #include "app_graphics_marker.h"
@@ -35,7 +40,7 @@ uint8_t init_display_dev_row_buf();
 
 
 /* Working buffer to draw the marker and its surrondings when marker is moved.
-   Allocated once dynamivally in app_graphics_init
+   Allocated once dynamically in app_graphics_init
    Its bigger then the marker itself, which makes possible to skip some display
    refreshing and make the app overall more responsable
    Size depends on: marker width and surrondings space
@@ -87,12 +92,13 @@ uint8_t app_graphics_init(){
 		init_marker_draw_buf_mono();
 		init_display_dev_row_buf();
 
-		bg_color=sys_cpu_to_be16(COLOR_RGB_565_BLACK);
-		mk_color=sys_cpu_to_be16(COLOR_RGB_565_WHITE);
+		bg_color = sys_cpu_to_be16(COLOR_RGB_565_BLACK);
+		mk_color = sys_cpu_to_be16(COLOR_RGB_565_WHITE);
 		line_color = sys_cpu_to_be16(COLOR_RGB_565_WHITE);
 		finish_color = sys_cpu_to_be16(COLOR_RGB_565_GREEN);
 
         break;
+
     case PIXEL_FORMAT_RGB_565:
         display_dev_bits_per_pixel = 16;
 
@@ -101,8 +107,8 @@ uint8_t app_graphics_init(){
 		init_marker_draw_buf_rgb565();
 		init_display_dev_row_buf();
 
-		bg_color=sys_cpu_to_be16(COLOR_RGB_565_BLACK);
-		mk_color=sys_cpu_to_be16(COLOR_RGB_565_RED);
+		bg_color = sys_cpu_to_be16(COLOR_RGB_565_BLACK);
+		mk_color = sys_cpu_to_be16(COLOR_RGB_565_RED);
 		line_color = sys_cpu_to_be16(COLOR_RGB_565_YELLOW);
 		finish_color = sys_cpu_to_be16(COLOR_RGB_565_GREEN);
 
@@ -134,7 +140,7 @@ void next_background(){
 uint8_t init_display_dev_row_buf(){
     display_dev_row_buf = k_malloc(DISPLAY_W * display_dev_bits_per_pixel / 8);
 	if (display_dev_row_buf == NULL) {
-        LOG_ERR("Failed to allocate buffer for cleaning the screen.");
+        LOG_ERR("Failed to allocate buffer for updating display.");
 		return -1;
 	}
 
@@ -156,9 +162,9 @@ uint8_t init_marker_draw_buf_mono(){
 	}
 
 	// Set buffer descriptor parameters
-	marker_draw_buf_desc.frame_incomplete=true;
+	marker_draw_buf_desc.frame_incomplete=false;
 	marker_draw_buf_desc.pitch = DISPLAY_W;
-	marker_draw_buf_desc.width = DISPLAY_W; // has to aligned to display width!
+	marker_draw_buf_desc.width = DISPLAY_W; // <-- has to aligned to display width!!
 	marker_draw_buf_desc.height = MARKER_BUF_MIN_HEIGHT;
 	marker_draw_buf_desc.buf_size = DISPLAY_W * MARKER_BUF_MIN_HEIGHT * display_dev_bits_per_pixel / 8;
 
@@ -168,12 +174,12 @@ uint8_t init_marker_draw_buf_mono(){
 uint8_t init_marker_draw_buf_rgb565(){
     marker_draw_buf = k_malloc(MARKER_BUF_DIM * MARKER_BUF_DIM * display_dev_bits_per_pixel / 8);
 	if (marker_draw_buf == NULL) {
-        LOG_ERR("Failed to allocate buffer for cleaning the screen.");
+        LOG_ERR("Failed to allocate buffer for drawing marker.");
 		return -1;
 	}
 
 	// Set buffer descriptor parameters
-	marker_draw_buf_desc.frame_incomplete=true;
+	marker_draw_buf_desc.frame_incomplete=false;
 	marker_draw_buf_desc.pitch = MARKER_BUF_DIM;
 	marker_draw_buf_desc.width = MARKER_BUF_DIM;
 	marker_draw_buf_desc.height = MARKER_BUF_DIM;
@@ -331,22 +337,22 @@ int draw_marker_mono(uint16_t x0, uint16_t y0){
 
     // Fill marker buffer with canvas data
     // (or with background if there is no line)
-    // (x,y) is the top left corner of buffer
+    // (x,y) is the top-left corner of buffer
     memset(marker_buf, 0, marker_draw_buf_desc.buf_size);
-    for (size_t y=0; y < MARKER_BUF_MIN_HEIGHT; y++){
-		for (size_t x=0; x < DISPLAY_W; x++){
+    for (size_t y=0; y < marker_draw_buf_desc.height; y++){
+		for (size_t x=0; x < marker_draw_buf_desc.width; x++){
+            uint16_t pixel; // <-- its now rgb565!!!
             // Where already exist line
-            uint16_t pixel; // its now rgb565!!!
-			if (canvas_get_pixel_inline(x, y0 + y - MARKER_BUF_MIN_HEIGHT / 2)){
+			if (canvas_get_pixel_inline(x, y0 + y - marker_draw_buf_desc.height / 2)){
 				pixel = line_color;
 			}
 			// Where not, get pixel color from background
 			else{
-                pixel = pixel_data_b16[ (x) + (y0 + y - MARKER_BUF_MIN_HEIGHT / 2) * DISPLAY_W];
+                pixel = pixel_data_b16[ (x) + (y0 + y - marker_draw_buf_desc.height / 2) * DISPLAY_W];
 			}
 
             // Convert and place it in marker buffer
-            if (rgb565_to_mono_dither(pixel, x,  y0 + y - MARKER_BUF_MIN_HEIGHT / 2)) {
+            if (rgb565_to_mono_dither(pixel, x,  y0 + y - marker_draw_buf_desc.height / 2)) {
 				size_t byte_idx = x / 8;
 				uint8_t bit_idx = x % 8; /* LSB first */
 
@@ -357,7 +363,7 @@ int draw_marker_mono(uint16_t x0, uint16_t y0){
 
     // Draw marker at (x0;y0) which is vertically in the middle of marker_draw_buffer
 
-	// (sx, sy) is now relative to the middle of the buffer (MARKER_BUF_MIN_HEIGHT / 2)
+	// (sx, sy) is now relative to the middle of the buffer (marker_draw_buf_desc.height / 2)
 	for (size_t i=0; i < MARKER_DRAW_BUFFER_SEGMENT_ELEMENTS; i++){
         // Iterate over segments
 		// Draw one marker segment into the buffer
@@ -374,7 +380,7 @@ int draw_marker_mono(uint16_t x0, uint16_t y0){
 					int16_t buf_y = y0 + sy + marker_draw_buffer_segment_xy[i].y;
 
 					int16_t bit_x = buf_x;
-					int16_t bit_y = buf_y - (y0 - MARKER_BUF_MIN_HEIGHT / 2);
+					int16_t bit_y = buf_y - (y0 - marker_draw_buf_desc.height / 2);
 
 					size_t byte_idx = bit_x / 8;
 					uint8_t bit_idx = bit_x % 8; /* LSB first */
@@ -385,9 +391,8 @@ int draw_marker_mono(uint16_t x0, uint16_t y0){
 		}
 	}
 
-    // Write buffer to display:
-	LOG_DBG("draw_marker_mono x0:%d y0:%d w:%d h:%d", 0, y0 - MARKER_BUF_MIN_HEIGHT / 2, marker_draw_buf_desc.width, marker_draw_buf_desc.height);
-	ret = display_write(display_dev, 0, y0 - MARKER_BUF_MIN_HEIGHT / 2, &marker_draw_buf_desc, marker_buf);
+	LOG_DBG("draw_marker_mono write to display dev x0:%d y0:%d w:%d h:%d", 0, y0 - marker_draw_buf_desc.height / 2, marker_draw_buf_desc.width, marker_draw_buf_desc.height);
+	ret = display_write(display_dev, 0, y0 - marker_draw_buf_desc.height / 2, &marker_draw_buf_desc, marker_buf);
 	if (ret < 0) {
 		LOG_ERR("Failed to write to display (error %d)", ret);
 		return ret;
@@ -396,11 +401,68 @@ int draw_marker_mono(uint16_t x0, uint16_t y0){
 }
 
 int draw_marker_rgb565(uint16_t x0, uint16_t y0){
-    // We have the marker_buffer: 
-    void *marker_draw_buf;
-    struct display_buffer_descriptor marker_draw_buf_desc;
-    uint8_t init_marker_draw_buf();
+	uint16_t *pixel_data_b16 = current_background;
+    uint16_t *marker_buf = (uint16_t *)marker_draw_buf;
+    int ret;
 
+	LOG_DBG("draw_marker_rgb565 x0:%d y0:%d", x0, y0);
+
+	// Fill marker buffer with canvas data
+    // (or with background if there is no line)
+    // (x,y) is the top-left corner of buffer
+    memset(marker_buf, 0, marker_draw_buf_desc.buf_size);
+    for (size_t y=0; y < marker_draw_buf_desc.height; y++){
+		for (size_t x=0; x < marker_draw_buf_desc.width; x++){
+            uint16_t pixel; // <-- its now rgb565!!!
+            // Where already exist line
+			if (canvas_get_pixel_inline(x, y0 + y - MARKER_BUF_MIN_HEIGHT / 2)){
+				pixel = line_color;
+			}
+			// Where not, get pixel color from background
+			else{
+                pixel = sys_cpu_to_be16(pixel_data_b16[ (x) + (y0 + y - MARKER_BUF_MIN_HEIGHT / 2) * DISPLAY_W]);
+			}
+
+			marker_buf [ x + y * marker_draw_buf_desc.pitch] = pixel;
+		}
+	}
+
+	// Draw marker at (x0;y0) which is in the middle of marker_draw_buffer
+
+	// (sx, sy) is now relative to the middle of the buffer (marker_draw_buf_desc.height / 2)
+	// marker_draw_buffer_segment_xy: top-left coordinates of segment
+	// marker_draw_buffer_segment_dimensions: width-height of segment
+	for (size_t i=0; i < MARKER_DRAW_BUFFER_SEGMENT_ELEMENTS; i++){
+        // Iterate over segments
+		// Draw one rectangle segment into the buffer
+		for (int16_t sy=0; sy < marker_draw_buffer_segment_dimensions[i].y; sy++){
+			for (int16_t sx=0; sx < marker_draw_buffer_segment_dimensions[i].x; sx++){
+				// its now the same format, so copy only km_color:
+				marker_buf[
+					( marker_draw_buf_desc.width / 2 + sx + marker_draw_buffer_segment_xy[i].x ) +
+					( marker_draw_buf_desc.height / 2 + sy + marker_draw_buffer_segment_xy[i].y ) * marker_draw_buf_desc.pitch
+				] = mk_color;
+			}
+		}
+	}
+
+	LOG_DBG("draw_marker_rgb565 write to display dev x0:%d y0:%d w:%d h:%d",
+		x0 - marker_draw_buf_desc.width / 2,
+		y0 - marker_draw_buf_desc.height / 2,
+		marker_draw_buf_desc.width,
+		marker_draw_buf_desc.height
+	);
+	ret = display_write(display_dev,
+		x0 - marker_draw_buf_desc.width / 2,
+		y0 - marker_draw_buf_desc.height / 2,
+		&marker_draw_buf_desc,
+		marker_buf
+	);
+	if (ret < 0) {
+		LOG_ERR("Failed to write to display (error %d)", ret);
+		return ret;
+	}
+    return 0;
 }
 
 touch_elements_t marker_touching(uint16_t x0, uint16_t y0){

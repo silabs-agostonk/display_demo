@@ -1,3 +1,10 @@
+/*
+ * Copyright (c) 2026 Silicon Laboratories Inc.
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+
 #include "app_led.h"
 
 #include <stdbool.h>
@@ -10,7 +17,7 @@
 #define LED_NODE DT_ALIAS(led0)
 
 #if !DT_NODE_EXISTS(LED_NODE)
-#error "Define devicetree alias app-led"
+#error "Define devicetree alias led0"
 #endif
 
 #define BLINK_FAST_ON_MS    100

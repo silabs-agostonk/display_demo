@@ -1,4 +1,6 @@
 /*
+ * Copyright (c) 2026 Silicon Laboratories Inc.
+ *
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -479,47 +481,6 @@ int hid_mouse_decode_report(const struct hid_mouse_parser *parser,
 	mouse_data->dy = parser->y.is_signed ?
 		(int16_t)sign_extend_value(y_raw, parser->y.bit_size) :
 		(int16_t)y_raw;
-
-	return 0;
-}
-
-int hid_mouse_decode_logitech_m196_(const uint8_t *data,
-				   size_t length,
-				   struct mouse_data_element *mouse_data)
-{
-	int16_t dx;
-	int16_t dy;
-
-	if ((data == NULL) || (mouse_data == NULL)) {
-		return -EINVAL;
-	}
-
-	if (length < 5) {
-		return -EMSGSIZE;
-	}
-
-	mouse_data->left_button = (data[0] & 0x01) != 0;
-	mouse_data->right_button = (data[0] & 0x02) != 0;
-
-	/*
-	 * Logitech MX Master style 12-bit movement format.
-	 * Kept here for future decoder selection support.
-	 *
-	 * uint16_t x12 = ((uint16_t)(data[3] & 0x0F) << 8) | data[2];
-	 * uint16_t y12 = ((uint16_t)(data[4] << 4)) |
-	 *		  ((data[3] >> 4) & 0x0F);
-	 * dx = sign_extend_12(x12);
-	 * dy = sign_extend_12(y12);
-	 */
-
-	/* Logitech M196: 1000 dpi */
-	dx = (int16_t)(((uint16_t)data[2] << 8) | data[1]);
-	dy = (int16_t)(((uint16_t)data[4] << 8) | data[3]);
-
-	mouse_data->dx = dx;
-	mouse_data->dy = dy;
-
-	ARG_UNUSED(sign_extend_12);
 
 	return 0;
 }
