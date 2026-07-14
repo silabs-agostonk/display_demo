@@ -32,6 +32,7 @@ LOG_MODULE_REGISTER(bt_connection, LOG_LEVEL_INF);
 #define RSSI_CONNECT_THRESHOLD (-30)
 #define PAIRING_MODE_TIMEOUT   K_SECONDS(60)
 #define RECONNECT_DELAY        K_MSEC(200)
+#define HIDS_REPORT_MAP_MAX_LEN 512U
 
 /*
  * This firmware acts as a BLE Central / HID client.
@@ -55,6 +56,8 @@ enum ble_link_state {
 enum hids_discovery_step {
     HIDS_DISCOVERY_STEP_IDLE,
     HIDS_DISCOVERY_STEP_SERVICE,
+    HIDS_DISCOVERY_STEP_REPORT_MAP,
+    HIDS_DISCOVERY_STEP_READ_REPORT_MAP,
     HIDS_DISCOVERY_STEP_REPORT_CHAR,
     HIDS_DISCOVERY_STEP_REPORT_CCC,
     HIDS_DISCOVERY_STEP_SUBSCRIBE_REPORT,
@@ -68,11 +71,15 @@ enum hids_discovery_step {
 struct hids_client_state {
     uint16_t start_handle;
     uint16_t end_handle;
+    uint16_t report_map_handle;
     uint16_t report_handle;
     uint16_t ccc_handle;
     uint16_t protocol_mode_handle;
     uint16_t ctrl_point_handle;
     enum hids_discovery_step discovery_step;
+    struct hid_mouse_parser mouse_parser;
+    uint8_t report_map[HIDS_REPORT_MAP_MAX_LEN];
+    size_t report_map_len;
 };
 
 struct ble_hid_ctx {
@@ -85,6 +92,7 @@ struct ble_hid_ctx {
 
     struct bt_uuid_16 discover_uuid;
     struct bt_gatt_discover_params discover_params;
+    struct bt_gatt_read_params read_params;
     struct bt_gatt_subscribe_params subscribe_params;
     struct hids_client_state hids;
     enum hids_discovery_step pending_discovery_step;
@@ -100,6 +108,8 @@ static struct ble_hid_ctx ble_ctx = {
     .discover_uuid = BT_UUID_INIT_16(0),
     .hids.discovery_step = HIDS_DISCOVERY_STEP_IDLE,
 };
+
+static struct bt_uuid_16 report_map_uuid = BT_UUID_INIT_16(BT_UUID_HIDS_REPORT_MAP_VAL);
 
 static const bt_security_t target_sec = BT_SECURITY_L2;
 
@@ -133,6 +143,11 @@ static uint8_t notify_func(struct bt_conn *conn,
                            struct bt_gatt_subscribe_params *params,
                            const void *data,
                            uint16_t length);
+static uint8_t report_map_read_func(struct bt_conn *conn,
+                                    uint8_t err,
+                                    struct bt_gatt_read_params *params,
+                                    const void *data,
+                                    uint16_t length);
 static void reset_hids_state(struct ble_hid_ctx *ctx);
 static void init_subscribe_params(struct ble_hid_ctx *ctx);
 static void refresh_bond_state(struct ble_hid_ctx *ctx);
@@ -218,7 +233,8 @@ static bool should_connect_to_device(const struct ble_hid_ctx *ctx,
         return false;
     }
 
-    if (rssi < RSSI_CONNECT_THRESHOLD) {
+    /* Proximity filtering is only needed while accepting a new peer. */
+    if (ctx->pairing_mode && rssi < RSSI_CONNECT_THRESHOLD) {
         return false;
     }
 
@@ -388,6 +404,16 @@ static void schedule_reconnect(struct ble_hid_ctx *ctx)
 static void reconnect_work_fn(struct k_work *work)
 {
     ARG_UNUSED(work);
+
+    if (ble_ctx.bonded_addr_valid && !ble_ctx.pairing_mode) {
+        char addr[BT_ADDR_LE_STR_LEN];
+
+        bt_addr_le_to_str(&ble_ctx.bonded_addr, addr, sizeof(addr));
+        LOG_INF("Reconnecting directly to bonded peer: %s", addr);
+        (void)connect_to_addr(&ble_ctx, &ble_ctx.bonded_addr);
+        return;
+    }
+
     start_scan(&ble_ctx);
 }
 
@@ -452,18 +478,20 @@ static uint8_t notify_func(struct bt_conn *conn,
         return BT_GATT_ITER_STOP;
     }
 
-    err = hid_mouse_decode_logitech_m196(data, length, &mouse_data);
+    LOG_HEXDUMP_DBG(data, length, "Input report");
+    err = hid_mouse_decode_report(&ble_ctx.hids.mouse_parser,
+                                  data, length, &mouse_data);
     if (err) {
         LOG_WRN("HID mouse decode failed: %d", err);
         return BT_GATT_ITER_CONTINUE;
     }
-	/*
-    LOG_INF("L:%d R:%d x:%d y:%d",
+	
+    LOG_DBG("L:%d R:%d x:%d y:%d",
         mouse_data.left_button,
         mouse_data.right_button,
         mouse_data.dx,
         mouse_data.dy);
-    */
+
 
     err = app_input_submit_mouse(&mouse_data);
     if (err) {
@@ -472,6 +500,67 @@ static uint8_t notify_func(struct bt_conn *conn,
     }
 
     total_rx_count++;
+    return BT_GATT_ITER_CONTINUE;
+}
+
+static uint8_t report_map_read_func(struct bt_conn *conn,
+                                    uint8_t err,
+                                    struct bt_gatt_read_params *params,
+                                    const void *data,
+                                    uint16_t length)
+{
+    struct ble_hid_ctx *ctx = &ble_ctx;
+    int rc;
+
+    ARG_UNUSED(params);
+
+    if (!conn_is_current(ctx, conn)) {
+        return BT_GATT_ITER_STOP;
+    }
+
+    if (err) {
+        LOG_WRN("Report Map read failed: 0x%02x; continuing with fallback decoder", err);
+        hids_schedule_step(ctx, HIDS_DISCOVERY_STEP_REPORT_CHAR);
+        return BT_GATT_ITER_STOP;
+    }
+
+    if (data == NULL) {
+
+        LOG_INF("Report Map length: %u", ctx->hids.report_map_len);
+
+        LOG_HEXDUMP_INF(ctx->hids.report_map,
+                    ctx->hids.report_map_len,
+                    "HID Report Map");
+
+        rc = hid_mouse_parser_init(&ctx->hids.mouse_parser,
+                                   ctx->hids.report_map,
+                                   ctx->hids.report_map_len);
+        if (rc) {
+            LOG_WRN("Report Map parse failed: %d; continuing with fallback decoder", rc);
+        } else {
+            LOG_INF("Report Map parsed: len %u report_id %u%s",
+                    (unsigned int)ctx->hids.report_map_len,
+                    ctx->hids.mouse_parser.report_id,
+                    ctx->hids.mouse_parser.has_report_id ? "" : " (none)");
+        }
+
+        hids_schedule_step(ctx, HIDS_DISCOVERY_STEP_REPORT_CHAR);
+        return BT_GATT_ITER_STOP;
+    }
+
+    if ((ctx->hids.report_map_len + length) > sizeof(ctx->hids.report_map)) {
+        LOG_WRN("Report Map too large: have %u incoming %u max %u; fallback decoder only",
+                (unsigned int)ctx->hids.report_map_len,
+                length,
+                (unsigned int)sizeof(ctx->hids.report_map));
+        ctx->hids.report_map_len = 0U;
+        hids_schedule_step(ctx, HIDS_DISCOVERY_STEP_REPORT_CHAR);
+        return BT_GATT_ITER_STOP;
+    }
+
+    (void)memcpy(&ctx->hids.report_map[ctx->hids.report_map_len], data, length);
+    ctx->hids.report_map_len += length;
+
     return BT_GATT_ITER_CONTINUE;
 }
 
@@ -491,7 +580,8 @@ static void hids_discovery_done(struct ble_hid_ctx *ctx)
 {
     ctx->hids.discovery_step = HIDS_DISCOVERY_STEP_DONE;
     set_state(ctx, BLE_LINK_READY);
-    LOG_INF("HIDS client ready");
+    LOG_INF("HIDS client ready%s",
+            ctx->hids.mouse_parser.valid ? " with parsed Report Map" : " with fallback decoder");
     app_led_off();
 }
 
@@ -543,6 +633,27 @@ static void hids_work_fn(struct k_work *work)
     ctx->pending_discovery_step = HIDS_DISCOVERY_STEP_IDLE;
 
     switch (step) {
+    case HIDS_DISCOVERY_STEP_READ_REPORT_MAP:
+        if (ctx->hids.report_map_handle == 0U) {
+            LOG_WRN("Report Map handle missing; continuing with fallback decoder");
+            hids_schedule_step(ctx, HIDS_DISCOVERY_STEP_REPORT_CHAR);
+            return;
+        }
+
+        (void)memset(&ctx->read_params, 0, sizeof(ctx->read_params));
+        ctx->hids.report_map_len = 0U;
+        ctx->read_params.func = report_map_read_func;
+        ctx->read_params.handle_count = 1U;
+        ctx->read_params.single.handle = ctx->hids.report_map_handle;
+        ctx->read_params.single.offset = 0U;
+
+        err = bt_gatt_read(ctx->conn, &ctx->read_params);
+        if (err) {
+            LOG_WRN("Report Map read start failed: %d; continuing with fallback decoder", err);
+            hids_schedule_step(ctx, HIDS_DISCOVERY_STEP_REPORT_CHAR);
+        }
+        return;
+
     case HIDS_DISCOVERY_STEP_SUBSCRIBE_REPORT:
         /*
          * subscribe_params is persistent and must not be reused for another
@@ -601,6 +712,7 @@ static void hids_work_fn(struct k_work *work)
         return;
 
     case HIDS_DISCOVERY_STEP_SERVICE:
+    case HIDS_DISCOVERY_STEP_REPORT_MAP:
     case HIDS_DISCOVERY_STEP_REPORT_CHAR:
     case HIDS_DISCOVERY_STEP_REPORT_CCC:
     case HIDS_DISCOVERY_STEP_PROTOCOL_MODE:
@@ -644,6 +756,14 @@ static int hids_discover_step(struct ble_hid_ctx *ctx,
         ctx->discover_params.start_handle = BT_ATT_FIRST_ATTRIBUTE_HANDLE;
         ctx->discover_params.end_handle = BT_ATT_LAST_ATTRIBUTE_HANDLE;
         ctx->discover_params.type = BT_GATT_DISCOVER_PRIMARY;
+        break;
+
+    case HIDS_DISCOVERY_STEP_REPORT_MAP:
+        memcpy(&ctx->discover_uuid, &report_map_uuid, sizeof(ctx->discover_uuid));
+        ctx->discover_params.uuid = &ctx->discover_uuid.uuid;
+        ctx->discover_params.start_handle = ctx->hids.start_handle + 1U;
+        ctx->discover_params.end_handle = ctx->hids.end_handle;
+        ctx->discover_params.type = BT_GATT_DISCOVER_CHARACTERISTIC;
         break;
 
     case HIDS_DISCOVERY_STEP_REPORT_CHAR:
@@ -709,6 +829,11 @@ static uint8_t handle_discovery_not_found(struct ble_hid_ctx *ctx,
         hids_discovery_failed(ctx, "HID service not found");
         break;
 
+    case HIDS_DISCOVERY_STEP_REPORT_MAP:
+        LOG_WRN("HID Report Map characteristic not found; continuing with fallback decoder");
+        hids_schedule_step(ctx, HIDS_DISCOVERY_STEP_REPORT_CHAR);
+        break;
+
     case HIDS_DISCOVERY_STEP_REPORT_CHAR:
         hids_discovery_failed(ctx, "HID report characteristic not found");
         break;
@@ -763,7 +888,24 @@ static uint8_t discover_func(struct bt_conn *conn,
         LOG_DBG("HID service: start 0x%04x end 0x%04x",
                 ctx->hids.start_handle, ctx->hids.end_handle);
 
-        hids_schedule_step(ctx, HIDS_DISCOVERY_STEP_REPORT_CHAR);
+        hids_schedule_step(ctx, HIDS_DISCOVERY_STEP_REPORT_MAP);
+        return BT_GATT_ITER_STOP;
+    }
+
+    case HIDS_DISCOVERY_STEP_REPORT_MAP: {
+        const struct bt_gatt_chrc *chrc = attr->user_data;
+
+        if (chrc == NULL || chrc->value_handle == 0U) {
+            LOG_WRN("HID Report Map characteristic has no value handle; continuing with fallback decoder");
+            hids_schedule_step(ctx, HIDS_DISCOVERY_STEP_REPORT_CHAR);
+            return BT_GATT_ITER_STOP;
+        }
+
+        ctx->hids.report_map_handle = chrc->value_handle;
+        LOG_DBG("HID Report Map characteristic: decl 0x%04x value 0x%04x",
+                attr->handle, ctx->hids.report_map_handle);
+
+        hids_schedule_step(ctx, HIDS_DISCOVERY_STEP_READ_REPORT_MAP);
         return BT_GATT_ITER_STOP;
     }
 
