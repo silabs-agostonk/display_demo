@@ -120,11 +120,6 @@ static struct bt_uuid_16 report_map_uuid = BT_UUID_INIT_16(BT_UUID_HIDS_REPORT_M
 
 static const bt_security_t target_sec = BT_SECURITY_L2;
 
-static const struct bt_conn_le_create_param create_param_coded =
-    BT_CONN_LE_CREATE_PARAM_INIT(BT_CONN_LE_OPT_CODED,
-                                 BT_GAP_SCAN_FAST_INTERVAL,
-                                 BT_GAP_SCAN_FAST_WINDOW);
-
 static const struct bt_conn_le_create_param create_param_1m =
     BT_CONN_LE_CREATE_PARAM_INIT(BT_CONN_LE_OPT_NONE,
                                  BT_GAP_SCAN_FAST_INTERVAL,
@@ -348,7 +343,7 @@ static void start_scan(struct ble_hid_ctx *ctx)
     int err;
     struct bt_le_scan_param scan_param = {
         .type = BT_LE_SCAN_TYPE_ACTIVE,
-        .options = BT_LE_SCAN_OPT_CODED,
+        .options = BT_LE_SCAN_OPT_NONE,
         .interval = BT_GAP_SCAN_FAST_INTERVAL,
         .window = BT_GAP_SCAN_FAST_WINDOW,
     };
@@ -374,20 +369,9 @@ static void start_scan(struct ble_hid_ctx *ctx)
     }
 
     if (err) {
-        LOG_WRN("Coded PHY scan failed: %d; retrying 1M", err);
-        scan_param.options &= ~BT_LE_SCAN_OPT_CODED;
-
-        err = bt_le_scan_start(&scan_param, device_found);
-        if (err == -EALREADY) {
-            set_state(ctx, BLE_LINK_SCANNING);
-            return;
-        }
-
-        if (err) {
-            LOG_ERR("Scan start failed: %d", err);
-            set_state(ctx, BLE_LINK_IDLE);
-            return;
-        }
+        LOG_ERR("Scan start failed: %d", err);
+        set_state(ctx, BLE_LINK_IDLE);
+        return;
     }
 
     set_state(ctx, BLE_LINK_SCANNING);
@@ -412,15 +396,12 @@ static void reconnect_work_fn(struct k_work *work)
 {
     ARG_UNUSED(work);
 
-    if (ble_ctx.bonded_addr_valid && !ble_ctx.pairing_mode) {
-        char addr[BT_ADDR_LE_STR_LEN];
-
-        bt_addr_le_to_str(&ble_ctx.bonded_addr, addr, sizeof(addr));
-        LOG_INF("Reconnecting directly to bonded peer: %s", addr);
-        (void)connect_to_addr(&ble_ctx, &ble_ctx.bonded_addr);
-        return;
-    }
-
+    /*
+     * Do not direct-connect to a bonded mouse that may be asleep.
+     * Scan first, then initiate only after a fresh advertisement.
+     * (Workaround for SiWx91x duplicate Command Complete after
+     * LE Create Connection Cancel)
+     */
     start_scan(&ble_ctx);
 }
 
@@ -448,17 +429,13 @@ static int connect_to_addr(struct ble_hid_ctx *ctx, const bt_addr_le_t *addr)
     }
 
     stop_scan(ctx);
+
+    /* Give the controller a short gap between scan stop and initiate. */
+    k_sleep(K_MSEC(100));
+
     set_state(ctx, BLE_LINK_CONNECTING);
 
-    /*
-    LOG_INF("Creating HID connection with Coded PHY support");
-    err = connect_with_params(ctx, addr, &create_param_coded);
-    if (!err) {
-        return 0;
-    }
-        */
-
-    LOG_WRN("Coded PHY connection failed: %d; retrying 1M", err);
+    LOG_INF("Creating HID connection using 1M PHY");
     err = connect_with_params(ctx, addr, &create_param_1m);
     if (!err) {
         return 0;
