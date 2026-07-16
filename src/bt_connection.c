@@ -38,7 +38,7 @@ LOG_MODULE_REGISTER(bt_connection, LOG_LEVEL_INF);
 /* Only connect to very near devices when pairing openly. */
 #define RSSI_CONNECT_THRESHOLD (-30)
 #define PAIRING_MODE_TIMEOUT   K_SECONDS(60)
-#define RECONNECT_DELAY        K_MSEC(200)
+#define RECONNECT_DELAY        K_MSEC(1500)
 #define HIDS_REPORT_MAP_MAX_LEN 512U
 
 /*
@@ -450,11 +450,13 @@ static int connect_to_addr(struct ble_hid_ctx *ctx, const bt_addr_le_t *addr)
     stop_scan(ctx);
     set_state(ctx, BLE_LINK_CONNECTING);
 
+    /*
     LOG_INF("Creating HID connection with Coded PHY support");
     err = connect_with_params(ctx, addr, &create_param_coded);
     if (!err) {
         return 0;
     }
+        */
 
     LOG_WRN("Coded PHY connection failed: %d; retrying 1M", err);
     err = connect_with_params(ctx, addr, &create_param_1m);

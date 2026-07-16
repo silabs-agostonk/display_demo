@@ -71,7 +71,7 @@ uint16_t finish_color;
 uint8_t app_graphics_init(){
 	
 	if (!device_is_ready(display_dev)) {
-		LOG_ERR("Device %s not found. Aborting sample.",
+		LOG_ERR("Device %s not found. Aborting application.",
 			display_dev->name);
 		return 0;
 	}
@@ -100,6 +100,7 @@ uint8_t app_graphics_init(){
         break;
 
     case PIXEL_FORMAT_RGB_565:
+	case PIXEL_FORMAT_RGB_565X:
         display_dev_bits_per_pixel = 16;
 
         load_background = load_background_rgb565;
@@ -135,9 +136,11 @@ void next_background(){
 	game_background_id++;
 	game_background_id %= BACKGROUND_ELEMENTS;
 	current_background = game_backgrounds[game_background_id];
+	LOG_INF("Switch to next backgroung: %d", game_background_id);
 }
 
 uint8_t init_display_dev_row_buf(){
+	LOG_INF("Graphics buffer init");
     display_dev_row_buf = k_malloc(DISPLAY_W * display_dev_bits_per_pixel / 8);
 	if (display_dev_row_buf == NULL) {
         LOG_ERR("Failed to allocate buffer for updating display.");
@@ -145,7 +148,7 @@ uint8_t init_display_dev_row_buf(){
 	}
 
 	// Set buffer descriptor parameters
-	display_dev_row_buf_desc.frame_incomplete=true;
+	display_dev_row_buf_desc.frame_incomplete=false;
 	display_dev_row_buf_desc.pitch = DISPLAY_W;
 	display_dev_row_buf_desc.width = DISPLAY_W;
 	display_dev_row_buf_desc.height = 1;
@@ -155,6 +158,7 @@ uint8_t init_display_dev_row_buf(){
 }
 
 uint8_t init_marker_draw_buf_mono(){
+	LOG_INF("Draw buffer init");
     marker_draw_buf = k_malloc(DISPLAY_W * MARKER_BUF_MIN_HEIGHT * display_dev_bits_per_pixel / 8);
 	if (marker_draw_buf == NULL) {
         LOG_ERR("Failed to allocate buffer for drawing marker.");
@@ -172,6 +176,7 @@ uint8_t init_marker_draw_buf_mono(){
 }
 
 uint8_t init_marker_draw_buf_rgb565(){
+	LOG_INF("Draw buffer init");
     marker_draw_buf = k_malloc(MARKER_BUF_DIM * MARKER_BUF_DIM * display_dev_bits_per_pixel / 8);
 	if (marker_draw_buf == NULL) {
         LOG_ERR("Failed to allocate buffer for drawing marker.");
@@ -309,7 +314,7 @@ int load_background_mono(){
 }
 
 int load_background_rgb565(){
-    uint16_t *pixel_data_b16 = current_background;
+    uint16_t *pixel_data_b16 = (uint16_t *)current_background;
     uint16_t *row_buf = (uint16_t *)display_dev_row_buf;
 
     int ret;
@@ -415,12 +420,12 @@ int draw_marker_rgb565(uint16_t x0, uint16_t y0){
 		for (size_t x=0; x < marker_draw_buf_desc.width; x++){
             uint16_t pixel; // <-- its now rgb565!!!
             // Where already exist line
-			if (canvas_get_pixel_inline(x, y0 + y - MARKER_BUF_MIN_HEIGHT / 2)){
+			if (canvas_get_pixel_inline(x0 + x - marker_draw_buf_desc.width / 2, y0 + y - marker_draw_buf_desc.height / 2)){
 				pixel = line_color;
 			}
 			// Where not, get pixel color from background
 			else{
-                pixel = sys_cpu_to_be16(pixel_data_b16[ (x) + (y0 + y - MARKER_BUF_MIN_HEIGHT / 2) * DISPLAY_W]);
+                pixel = sys_cpu_to_be16(pixel_data_b16[ (x0 + x - marker_draw_buf_desc.width / 2) + (y0 + y - marker_draw_buf_desc.height / 2) * DISPLAY_W]);
 			}
 
 			marker_buf [ x + y * marker_draw_buf_desc.pitch] = pixel;
