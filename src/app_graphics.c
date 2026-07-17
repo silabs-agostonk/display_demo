@@ -159,7 +159,7 @@ uint8_t init_display_dev_row_buf(){
 
 uint8_t init_marker_draw_buf_mono(){
 	LOG_INF("Draw buffer init");
-    marker_draw_buf = k_malloc(DISPLAY_W * MARKER_BUF_MIN_HEIGHT * display_dev_bits_per_pixel / 8);
+    marker_draw_buf = k_malloc(DISPLAY_W * MARKER_BUF_DIM * display_dev_bits_per_pixel / 8);
 	if (marker_draw_buf == NULL) {
         LOG_ERR("Failed to allocate buffer for drawing marker.");
 		return -1;
@@ -169,8 +169,8 @@ uint8_t init_marker_draw_buf_mono(){
 	marker_draw_buf_desc.frame_incomplete=false;
 	marker_draw_buf_desc.pitch = DISPLAY_W;
 	marker_draw_buf_desc.width = DISPLAY_W; // <-- has to aligned to display width!!
-	marker_draw_buf_desc.height = MARKER_BUF_MIN_HEIGHT;
-	marker_draw_buf_desc.buf_size = DISPLAY_W * MARKER_BUF_MIN_HEIGHT * display_dev_bits_per_pixel / 8;
+	marker_draw_buf_desc.height = MARKER_BUF_DIM;
+	marker_draw_buf_desc.buf_size = DISPLAY_W * MARKER_BUF_DIM * display_dev_bits_per_pixel / 8;
 
     return 0;
 }

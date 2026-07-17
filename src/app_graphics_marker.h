@@ -60,7 +60,7 @@ extern const struct int16_xy_pair marker_draw_buffer_border [];
 
 #endif
 
-
+#define MAX_MOVEMENT_WITHOUT_UPDATE ( ( (MARKER_BUF_DIM) - (MARKER_BUF_MIN_WIDTH) ) / 2)
 
 #ifdef __cplusplus
 }

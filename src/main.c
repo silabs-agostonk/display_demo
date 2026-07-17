@@ -220,24 +220,17 @@ int main(void) {
 
 					draw_step++;
 
-					if (draw_step >= 6 || (x0 == x1 && y0 == y1)) {
+					/*
+					* A wall can stop the Bresenham loop before the next throttled
+					* display update. In that case (x0 == x1 && y0 == y1) render
+					* the final position as well.
+					*/
+				
+					if (draw_step >= MAX_MOVEMENT_WITHOUT_UPDATE || (x0 == x1 && y0 == y1)) {
 						draw_marker(x0, y0);
 						marker_pos_last_drawn = marker_pos_actual;
 						draw_step = 0;
 					}
-				}
-
-				/*
-				 * A wall can stop the Bresenham loop before the next throttled
-				 * display update. In that case marker_pos_actual already contains
-				 * the final collision-free slide position, so render it now.
-				 */
-
-
-				if (marker_pos_actual.x != marker_pos_last_drawn.x ||
-				    marker_pos_actual.y != marker_pos_last_drawn.y) {
-					draw_marker(marker_pos_actual.x, marker_pos_actual.y);
-					marker_pos_last_drawn = marker_pos_actual;
 				}
 			}
 
