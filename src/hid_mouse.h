@@ -35,14 +35,11 @@ struct hid_mouse_parser {
 	struct hid_mouse_field y;
 };
 
-int hid_mouse_parser_init(struct hid_mouse_parser *parser,
-			  const uint8_t *report_map,
+int hid_mouse_parser_init(struct hid_mouse_parser *parser, const uint8_t *report_map,
 			  size_t report_map_len);
 
-int hid_mouse_decode_report(const struct hid_mouse_parser *parser,
-			    const uint8_t *data,
-			    size_t length,
-			    struct mouse_data_element *mouse_data);
+int hid_mouse_decode_report(const struct hid_mouse_parser *parser, const uint8_t *data,
+			    size_t length, struct mouse_data_element *mouse_data);
 
 #ifdef __cplusplus
 }

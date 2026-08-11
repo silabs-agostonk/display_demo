@@ -12,10 +12,7 @@
 LOG_MODULE_REGISTER(main, LOG_LEVEL_INF);
 
 #include <zephyr/kernel.h>
-#include <zephyr/device.h>
-#include <zephyr/devicetree.h>
-#include <zephyr/drivers/display.h>
-#include <zephyr/sys/byteorder.h>
+#include <zephyr/sys/util.h>
 
 #include <stdint.h>
 #include <stdlib.h>
@@ -28,87 +25,90 @@ LOG_MODULE_REGISTER(main, LOG_LEVEL_INF);
 #include "app_graphics_marker.h"
 
 enum states_t {
-  start,
-  load_game,
-  run_game,
-  finish_game
+	APP_STATE_START,
+	APP_STATE_LOAD_GAME,
+	APP_STATE_RUN_GAME,
+	APP_STATE_FINISH_GAME,
 };
 
-
-int main(void) {
-
-	enum states_t app_state = start;
+int main(void)
+{
+	enum states_t app_state = APP_STATE_START;
 	struct int16_xy_pair marker_pos_actual;
-	struct int16_xy_pair marker_pos_last_drawn;
 	struct int16_xy_pair marker_pos_new;
 	struct mouse_data_element mouse_data_new_element;
+	int ret;
 
-	display_blanking_off(display_dev);
-
-	while (1){
-
-		switch (app_state){
-			case start:
-
+	while (true) {
+		switch (app_state) {
+		case APP_STATE_START:
 			LOG_INF("Starting BLE Maze game");
 
-			// Initialize inputs and graphics
 			app_input_init();
-			app_graphics_init();
+			ret = app_graphics_init();
+			if (ret) {
+				LOG_ERR("App graphics init failed: %d", ret);
+				return ret;
+			}
 
-			ble_hid_app_start();
-			app_state = load_game;
+			ret = ble_hid_app_start();
+			if (ret) {
+				LOG_ERR("HID app start failed: %d", ret);
+				return ret;
+			}
+
+			app_state = APP_STATE_LOAD_GAME;
 			break;
 
-			case load_game:
-			canvas_clean();
-			load_background();
+		case APP_STATE_LOAD_GAME:
+			app_graphics_canvas_clear();
+			ret = app_graphics_load_background();
+			if (ret) {
+				LOG_ERR("Load background failed: %d", ret);
+				return ret;
+			}
 
-			// Set and draw marker start position:
 			marker_pos_actual.x = 10;
 			marker_pos_actual.y = DISPLAY_H / 2;
-			canvas_draw(marker_pos_actual.x, marker_pos_actual.y);
-			draw_marker(marker_pos_actual.x, marker_pos_actual.y);
-			marker_pos_last_drawn = marker_pos_actual;
-		
+			app_graphics_canvas_draw(marker_pos_actual.x, marker_pos_actual.y);
+			ret = app_graphics_draw_marker(marker_pos_actual.x, marker_pos_actual.y);
+			if (ret) {
+				LOG_ERR("Draw marker failed: %d", ret);
+				return ret;
+			}
+
 			app_input_flush();
 
-			app_state = run_game;
+			app_state = APP_STATE_RUN_GAME;
 			break;
 
-			case run_game:
+		case APP_STATE_RUN_GAME:
 
-			if (app_input_get_mouse(&mouse_data_new_element, K_FOREVER) == 0){
+			if (app_input_get_mouse(&mouse_data_new_element, K_FOREVER) == 0) {
 
-				if (mouse_data_new_element.left_button){
-					// Clean the actual game
-					app_state = load_game;
+				if (mouse_data_new_element.left_button) {
+					app_state = APP_STATE_LOAD_GAME;
+					break;
+				} else if (mouse_data_new_element.right_button) {
+					app_state = APP_STATE_LOAD_GAME;
+					app_graphics_next_background();
 					break;
 				}
-				else if (mouse_data_new_element.right_button){
-					// Jump to the next game
-					app_state = load_game;
-					next_background();
-					break;
-				}
-				// Calculate new position
-				marker_pos_new.x = marker_pos_actual.x + mouse_data_new_element.dx;
-				marker_pos_new.y = marker_pos_actual.y + mouse_data_new_element.dy;
 
-				// Keep new position within display
-				if (marker_pos_new.x > DISPLAY_W - MARKER_BUF_DIM / 2 - 1) marker_pos_new.x = DISPLAY_W - MARKER_BUF_DIM / 2 - 1;
-				if (marker_pos_new.x < MARKER_BUF_DIM / 2 + 1) marker_pos_new.x = MARKER_BUF_DIM / 2 + 1;
+				marker_pos_new.x = CLAMP(
+					(int32_t)marker_pos_actual.x + mouse_data_new_element.dx,
+					MARKER_BUF_DIM / 2 + 1, DISPLAY_W - MARKER_BUF_DIM / 2 - 1);
+				marker_pos_new.y = CLAMP(
+					(int32_t)marker_pos_actual.y + mouse_data_new_element.dy,
+					MARKER_BUF_DIM / 2 + 1, DISPLAY_H - MARKER_BUF_DIM / 2 - 1);
 
-				if (marker_pos_new.y > DISPLAY_H - MARKER_BUF_DIM / 2 - 1) marker_pos_new.y = DISPLAY_H - MARKER_BUF_DIM / 2 - 1;
-				if (marker_pos_new.y < MARKER_BUF_DIM / 2 + 1) marker_pos_new.y = MARKER_BUF_DIM / 2 + 1;
-				
 				/* Draw a line with Bresenham's algorithm. The display-frame
-				* limits have already been handled above.
-				*/
+				 * limits have already been handled above.
+				 */
 				int16_t x0 = marker_pos_actual.x;
 				int16_t y0 = marker_pos_actual.y;
-				const int16_t x1 = marker_pos_new.x;
-				const int16_t y1 = marker_pos_new.y;
+				int16_t x1 = marker_pos_new.x;
+				int16_t y1 = marker_pos_new.y;
 
 				const int16_t dx = abs(x1 - x0);
 				const int16_t dy = abs(y1 - y0);
@@ -137,53 +137,61 @@ int main(void) {
 						next_err += dx;
 					}
 
-					touch_elements_t touched = marker_touching(next_x, next_y);
+					enum touch_element touched =
+						app_graphics_marker_touching(next_x, next_y);
 
-					if (touched == touched_finish_line) {
+					if (touched == TOUCH_FINISH_LINE) {
 						LOG_INF("Drawing: touched finish color");
-						app_state = finish_game;
+						app_state = APP_STATE_FINISH_GAME;
 						break;
 					}
 
-					if (touched != touched_wall) {
+					if (touched != TOUCH_WALL) {
 						/* The normal Bresenham step is free. */
 						x0 = next_x;
 						y0 = next_y;
 						err = next_err;
 					} else {
 						/*
-						* The requested step is blocked. Try moving along one axis
-						* from the last collision-free position. This produces sliding
-						* along horizontal, vertical and diagonal obstacles.
-						*/
+						 * The requested step is blocked. Try moving along
+						 * one axis from the last collision-free position.
+						 * This produces sliding along horizontal, vertical
+						 * and diagonal obstacles.
+						 */
 						bool can_move_x = false;
 						bool can_move_y = false;
 
-						touch_elements_t touched_x = touched_wall;
-						touch_elements_t touched_y = touched_wall;
+						enum touch_element touched_x = TOUCH_WALL;
+						enum touch_element touched_y = TOUCH_WALL;
 
 						if (x0 != x1) {
-							touched_x = marker_touching(x0 + sx, y0);
-							can_move_x = touched_x != touched_wall;
+							touched_x = app_graphics_marker_touching(
+								x0 + sx, y0);
+							can_move_x = touched_x != TOUCH_WALL;
 						}
 
 						if (y0 != y1) {
-							touched_y = marker_touching(x0, y0 + sy);
-							can_move_y = touched_y != touched_wall;
+							touched_y = app_graphics_marker_touching(
+								x0, y0 + sy);
+							can_move_y = touched_y != TOUCH_WALL;
 						}
 
-						/* Check the finish line for the alternative movements too. */
-						if ((can_move_x && touched_x == touched_finish_line) ||
-							(can_move_y && touched_y == touched_finish_line)) {
+						/* Check the finish line for the alternative
+						 * movements too. */
+						if ((can_move_x &&
+						     touched_x == TOUCH_FINISH_LINE) ||
+						    (can_move_y &&
+						     touched_y == TOUCH_FINISH_LINE)) {
 							LOG_INF("Drawing: touched finish color");
-							app_state = finish_game;
+							app_state = APP_STATE_FINISH_GAME;
 							break;
 						}
 
 						/*
-						* Prefer the axis having the largest remaining mouse movement.
-						* If it is blocked, slide along the other axis.
-						*/
+						 * Prefer the axis having the largest remaining
+						 * mouse movement. If it is blocked, slide along the
+						 * other axis.
+						 */
 						if (abs(x1 - x0) >= abs(y1 - y0)) {
 							if (can_move_x) {
 								x0 += sx;
@@ -193,7 +201,8 @@ int main(void) {
 								err = old_err + dx;
 							} else {
 								LOG_DBG("Drawing: movement completely blocked");
-								break;
+								x1 = x0;
+								y1 = y0;
 							}
 						} else {
 							if (can_move_y) {
@@ -204,31 +213,37 @@ int main(void) {
 								err = old_err - dy;
 							} else {
 								LOG_DBG("Drawing: movement completely blocked");
-								break;
+								x1 = x0;
+								y1 = y0;
 							}
 						}
 					}
 
-					canvas_draw(x0, y0);
+					app_graphics_canvas_draw(x0, y0);
 
 					/*
-					* Keep the logical position synchronized with every collision-free
-					* step. Display updates can still be throttled.
-					*/
+					 * Keep the logical position synchronized with every
+					 * collision-free step. Display updates can still be
+					 * throttled.
+					 */
 					marker_pos_actual.x = x0;
 					marker_pos_actual.y = y0;
 
 					draw_step++;
 
 					/*
-					* A wall can stop the Bresenham loop before the next throttled
-					* display update. In that case (x0 == x1 && y0 == y1) render
-					* the final position as well.
-					*/
-				
-					if (draw_step >= MAX_MOVEMENT_WITHOUT_UPDATE || (x0 == x1 && y0 == y1)) {
-						draw_marker(x0, y0);
-						marker_pos_last_drawn = marker_pos_actual;
+					 * A wall can stop the Bresenham loop before the next
+					 * throttled display update. In that case (x0 == x1 && y0 ==
+					 * y1) render the final position as well.
+					 */
+
+					if (draw_step >= MAX_MOVEMENT_WITHOUT_UPDATE ||
+					    (x0 == x1 && y0 == y1)) {
+						ret = app_graphics_draw_marker(x0, y0);
+						if (ret) {
+							LOG_ERR("Draw marker failed: %d", ret);
+							return ret;
+						}
 						draw_step = 0;
 					}
 				}
@@ -236,23 +251,20 @@ int main(void) {
 
 			break;
 
-			case finish_game:
+		case APP_STATE_FINISH_GAME:
 
 			LOG_INF("Game: loading the next background");
 
-			// Would be great to show some text on display
 			k_msleep(500);
-			
-			next_background();
 
-			app_state = load_game;
+			app_graphics_next_background();
+
+			app_state = APP_STATE_LOAD_GAME;
 			break;
 
-			default:
-			app_state = start;
-        	break;
+		default:
+			app_state = APP_STATE_START;
+			break;
 		}
-
 	}
-	return 0;
 }

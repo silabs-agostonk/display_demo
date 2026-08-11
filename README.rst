@@ -1,202 +1,209 @@
+.. zephyr:code-sample:: ble_hid_maze
+   :name: Bluetooth LE HID mouse display maze
+   :relevant-api: bluetooth display_interface
+
+   Control a maze on an SPI display with a Bluetooth LE HID mouse.
+
 Overview
 ********
 
+This sample implements a small maze game that demonstrates:
 
-Zephyr demo with SPI display and BLE mouse
+* BLE central acting as a HID client;
+* runtime parsing of a HID mouse report map;
+* bonding and reconnection to one mouse;
+* partial display updates without a full RGB frame buffer.
 
+Move the mouse to guide the marker through the maze. Press the left mouse
+button to restart the current maze or the right mouse button to load the next
+maze.
 
+Requirements
+************
 
-Other info
-********
+The sample currently supports these board and display setups:
 
-It works on siwx917_dk2605a and xg24_dk2601b devices on most recent version of upstream.
+* ``xg24_dk2601b`` with a DLC0347BWP00SF display;
+* ``siwx917_dk2605a`` with a DLC0347BWP00SF display;
+* ``xg24_rb4187c`` with a WPK board featuring an onboard Sharp 128 x 128
+  memory display.
 
-On upstream::
+It also requires:
 
-   git checkout main
-   git pull
-   west update
+* a Bluetooth LE HID mouse.
+
+The application has been tested with Logitech M196 and Logitech MX Master 3S.
+Other Bluetooth LE HID mice may also work.
+
+The ``xg24_dk2601b`` and ``siwx917_dk2605a`` setups also require:
+
+* a DLC0347BWP00SF-1 display with an ST7796S-compatible controller;
+* jumper wires for the board expansion header.
+
+The bundled maze assets support 480 x 320 and 128 x 128 displays. The supplied
+board overlays configure the DLC0347BWP00SF-1 as a 480 x 320 RGB565 display.
+
+Before building fetch the Silicon Labs binary blobs:
+
+.. code-block:: console
+
    west blobs fetch hal_silabs
 
-917 NWP firmware
+The SiWx917 network processor must also contain compatible connectivity
+firmware. See the board documentation for the firmware update procedure.
 
-* take SiWG917-B.2.15.5.2.0.2.rps (or similar)
-* from https://github.com/SiliconLabs/wiseconnect/tree/master/connectivity_firmware/standard
-* or from zephyrproject/modules/hal/silabs/zephyr/blobs/wiseconnect/connectivity_firmware/standard/SiWG917-B.2.15.5.2.0.2.rps
+Wiring
+******
 
-::
+Connect the display to the board expansion header as follows. Pin names in
+parentheses are the GPIO signals selected by the board overlay.
 
-   west build -p -b siwx917_dk2605a ./app/display/ -d ./build_917/
-   west flash -d ./build_917/ --dev-id 446000408
+.. list-table:: ``xg24_dk2601b`` connections
+   :header-rows: 1
 
-::
+   * - Display signal
+     - Expansion header
+   * - VCC
+     - EXP20 (3.3 V)
+   * - GND
+     - EXP01
+   * - RESET
+     - EXP13 (PD02)
+   * - MOSI/SDA
+     - EXP04 (PC03)
+   * - D/C
+     - EXP09 (PB00)
+   * - CS
+     - EXP10 (PA07)
+   * - SCLK/SCL
+     - EXP08 (PC01)
 
-   west build -p -b xg24_dk2601b ./app/display/ -d ./build_efr/
-   west flash -d ./build_efr/ --id 440333926
+.. list-table:: ``siwx917_dk2605a`` connections
+   :header-rows: 1
 
+   * - Display signal
+     - Expansion header
+   * - VCC
+     - EXP20 (3.3 V)
+   * - GND
+     - EXP01 or EXP26
+   * - RESET
+     - EXP23
+   * - MOSI/SDA
+     - EXP07
+   * - D/C
+     - EXP21
+   * - CS
+     - EXP09
+   * - SCLK/SCL
+     - EXP03
 
-Limits, known bugs:
-********
-- Currently works only with Logitech M196 BLE mouses. There is no HID table interpretation, so HID Report data interpretation callback may have to changed to use other mice.
-- after some time connection drops (due to mouse sleep), and the connection does not populates in every case. In this scenario, you have to reset the mice.
-- if 917 cannot rebond, needs to erase the flash and flash again (settings loading)
-- both has log on VCOM (115200) to check what happens in background
+Building and Running
+********************
 
+Build and flash the sample for ``xg24_dk2601b``:
 
-First usage, after start
-********
-- push BTN1 on the board to enable pairing
-- push the button on mouse for 3sec to enable pairing mode
+.. zephyr-app-commands::
+   :zephyr-app: samples/ble_hid_maze
+   :board: xg24_dk2601b
+   :goals: build flash
+   :compact:
 
-SPI connection
-********
+Or build and flash it for ``siwx917_dk2605a``:
 
-- DLC0347BWP00SF-1 display connector: https://www.dlcdisplay.com/viewfilebizce/1760130809082957824/DLC0347BWP00SF-1.pdf
-- EXP pins are the connectors of devkits
+.. zephyr-app-commands::
+   :zephyr-app: samples/ble_hid_maze
+   :board: siwx917_dk2605a
+   :goals: build flash
+   :compact:
 
+Or build and flash it for ``xg24_rb4187c``:
 
-In case of EFR BRD2601B
-===================
+.. zephyr-app-commands::
+   :zephyr-app: samples/ble_hid_maze
+   :board: xg24_rb4187c
+   :goals: build flash
+   :compact:
 
-::
+Pairing and Operation
+*********************
 
-                           +-----------+
-                           |  DLC0347  |
-                     +-----+-----+-----+-----+
-                     |     |  2  |  1  | VCC | ------ (3.3) EXP20
-                     +-----+-----+-----+-----+
-                     |     |  4  |  3  |     |
-                     ------+-----+-----+-----+
-  EXP01 (GND) ------ | GND |  6  |  5  |     |
-                     +-----+-----+-----+-----+
-                     |     |  8  |  7  |     |
-                     +-----+-----+-----+-----+
-                     |     | 10  |  9  |     |
-                     +-----+-----+-----+-----+
-                     |     | 12  | 11  |     |
-                     +-----+-----+-----+-----+
-                     |     | 14  | 13  | RES | ------ (PD02) EXP13
-                     +-----+-----+-----+-----+
-                     |     | 16  | 15  |     |
-                     +-----+-----+-----+-----+
-                     | BLK | 18  | 17  |     |
-                     +-----+-----+-----+-----+
-                     |     | 20  | 19  | SDA | ------ (SPI_COPI/PC03) EXP04
-                     +-----+-----+-----+-----+
-  EXP09 (PB00) ----- | DC  | 22  | 21  |     |
-                     +-----+-----+-----+-----+
-  EXP10 (PA07) ----- | CS  | 24  | 23  | SCL | ------ (SPI_CLK/PC01) EXP08
-                     +-----+-----+-----+-----+
-                     |     | 26  | 25  |     |
-                     +-----+-----+-----+-----+
+#. Reset the board.
+#. Press button 0 on the board. The status LED blinks quickly while pairing
+   mode is enabled.
+#. Put the mouse into Bluetooth pairing mode and keep it close to the board.
+#. Move the mouse to guide the marker through the maze.
 
+Pairing mode times out after 60 seconds. Bond information is stored in flash,
+so subsequent boots reconnect to the bonded mouse automatically. To replace
+the bonded mouse, enable pairing mode and pair the new device; the sample keeps
+only one bond and overwrites the oldest key.
 
+The application logs Bluetooth and game status on the virtual COM port at
+115200 baud.
 
+Implementation Notes
+********************
 
-In case of 917 BRD2605A
-===================
+The application does not allocate a complete RGB565 frame buffer. Maze images
+are stored in flash and written to the display one row at a time. A one-bit
+canvas records the marker trail. During movement, only a small rectangle around
+the marker is reconstructed from the background, trail, and marker layers and
+sent to the display.
 
-::
+The generated ``src/bg_*`` files contain RGB565 images for the supported
+resolutions. Their editable GIMP sources are in ``game_pictures``. When
+exporting an image from GIMP, export it as a C source file and select the
+RGB565 (16-bit) option in the export settings.
 
-                           +-----------+
-                           |  DLC0347  |
-                     +-----+-----+-----+-----+
-                     |     |  2  |  1  | VCC | ------ (3.3) EXP20
-                     +-----+-----+-----+-----+
-                     |     |  4  |  3  |     |
-                     ------+-----+-----+-----+
-  EXP01/26 (GND) --- | GND |  6  |  5  |     |
-                     +-----+-----+-----+-----+
-                     |     |  8  |  7  |     |
-                     +-----+-----+-----+-----+
-                     |     | 10  |  9  |     |
-                     +-----+-----+-----+-----+
-                     |     | 12  | 11  |     |
-                     +-----+-----+-----+-----+
-                     |     | 14  | 13  | RES | ------ EXP23
-                     +-----+-----+-----+-----+
-                     |     | 16  | 15  |     |
-                     +-----+-----+-----+-----+
-                     | BLK | 18  | 17  |     |
-                     +-----+-----+-----+-----+
-                     |     | 20  | 19  | SDA | ------ EXP07
-                     +-----+-----+-----+-----+
-  EXP21 ------------ | DC  | 22  | 21  |     |
-                     +-----+-----+-----+-----+
-  EXP09 ------------ | CS  | 24  | 23  | SCL | ------ EXP03
-                     +-----+-----+-----+-----+
-                     |     | 26  | 25  |     |
-                     +-----+-----+-----+-----+
+Reproducing the Background Images
+=================================
 
+The source mazes were created with the `online maze generator
+<https://codebox.net/pages/maze-generator/online>`_ using the settings below.
 
+For the 320 x 240 source images:
 
+.. list-table::
+   :header-rows: 1
 
-Graphics
-********
+   * - Maze
+     - Grid size
+     - Seed
+   * - Square
+     - 14 x 10
+     - 857133801
+   * - Triangle
+     - 22 x 10
+     - 741051981
+   * - Hex
+     - 12 x 10
+     - 620715798
 
+For the 128 x 128 source images:
 
-Some words about the app drawings.
+.. list-table::
+   :header-rows: 1
 
-The maze patterns are stored in src/bg_*.c files, generated in this way:
+   * - Maze
+     - Grid size
+     - Seed
+   * - Square
+     - 7 x 7
+     - 446683954
+   * - Triangle
+     - 10 x 7
+     - 991189289
+   * - Hex
+     - 4 x 5
+     - 396377894
 
-- go to page: https://codebox.net/pages/maze-generator/online
-- save the generated picture
-- scale and edit in Gimp to fit the display
-- add some green part, which will trigger game finished state and load a new pattern
-- export it to c file, in 16 bit format (like bt_square.c)
-- Gimp creates static variable (has to be changed global)
+The images were downloaded from the generator, edited and polished in GIMP,
+and then exported as C source files.
 
-There is not enough RAM to store the complete frame buffer so drawing follows these steps:
+Limitations
+***********
 
-- loads the complete image from flash and writes to the display (only once)
-- there is a 1bit/pixel buffer in RAM to store mouse movement line (canvas)
-- if the mouse moves, the round marker and the surrondings is updated with one write transaction:
-   - with the background
-   - with marker line 
-   - with marker itself
-
-The buffer wich updates the screen looks like this:
-
-::
-  
-  +-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+
-  |     | -7  | -6  | -5  | -4  | -3  | -2  | -1  |  0  |  1  |  2  |  3  |  4  |  5  |  6  |  7  |
-  +-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+
-  | -7  |     |     |     |     |     |     |     |     |     |     |     |     |     |     |     |
-  +-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+
-  | -6  |     |     |     |     |     |     |     |     |     |     |     |     |     |     |     |
-  +-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+
-  | -5  |     |     |     |     |     |     |     |     |     |     |     |     |     |     |     |
-  +-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+
-  | -4  |     |     |     |     |     |  #  |  #  |  #  |  #  |  #  |     |     |     |     |     |
-  +-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+
-  | -3  |     |     |     |     |  #  |     |     |     |     |     |  #  |     |     |     |     |
-  +-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+
-  | -2  |     |     |     |  #  |     |     |     |     |     |     |     |  #  |     |     |     |
-  +-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+
-  | -1  |     |     |     |  #  |     |     |     |     |     |     |     |  #  |     |     |     |
-  +-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+
-  |  0  |     |     |     |  #  |     |     |     |  x  |     |     |     |  #  |     |     |     |
-  +-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+
-  |  1  |     |     |     |  #  |     |     |     |     |     |     |     |  #  |     |     |     |
-  +-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+
-  |  2  |     |     |     |  #  |     |     |     |     |     |     |     |  #  |     |     |     |
-  +-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+
-  |  3  |     |     |     |     |  #  |     |     |     |     |     |  #  |     |     |     |     |
-  +-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+
-  |  4  |     |     |     |     |     |  #  |  #  |  #  |  #  |  #  |     |     |     |     |     |
-  +-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+
-  |  5  |     |     |     |     |     |     |     |     |     |     |     |     |     |     |     |
-  +-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+
-  |  6  |     |     |     |     |     |     |     |     |     |     |     |     |     |     |     |
-  +-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+
-  |  7  |     |     |     |     |     |     |     |     |     |     |     |     |     |     |     |
-  +-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+
-
-
-
-- x is the current mouse position; all other part is calculated relative to this
-- marker_draw_buffer_border:
-    - used used to check as well the touching logic (for walls and green finish line)
-- marker_draw_buffer_segment_xy and marker_draw_buffer_segment_dimensions:
-    - rectangles to cover a circle
+The HID parser supports mice whose input report describes relative X and Y
+axes plus the first two buttons. It selects a single report and does not yet
+interpret every HID global item or composite-device report layout.

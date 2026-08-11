@@ -11,7 +11,7 @@
 extern "C" {
 #endif
 
-void ble_hid_app_start(void);
+int ble_hid_app_start(void);
 
 #ifdef __cplusplus
 }

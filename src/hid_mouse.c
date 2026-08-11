@@ -13,7 +13,6 @@
 
 LOG_MODULE_REGISTER(hid_mouse, LOG_LEVEL_INF);
 
-
 #include <zephyr/sys/util.h>
 
 #include "hid_mouse.h"
@@ -21,27 +20,27 @@ LOG_MODULE_REGISTER(hid_mouse, LOG_LEVEL_INF);
 #define HID_USAGE_PAGE_GENERIC_DESKTOP 0x01
 #define HID_USAGE_PAGE_BUTTON          0x09
 
-#define HID_USAGE_GENERIC_MOUSE        0x02
-#define HID_USAGE_GENERIC_POINTER      0x01
-#define HID_USAGE_GENERIC_X            0x30
-#define HID_USAGE_GENERIC_Y            0x31
+#define HID_USAGE_GENERIC_MOUSE   0x02
+#define HID_USAGE_GENERIC_POINTER 0x01
+#define HID_USAGE_GENERIC_X       0x30
+#define HID_USAGE_GENERIC_Y       0x31
 
-#define HID_MAIN_ITEM_INPUT            0x80
-#define HID_MAIN_ITEM_COLLECTION       0xA0
-#define HID_MAIN_ITEM_END_COLLECTION   0xC0
+#define HID_MAIN_ITEM_INPUT          0x80
+#define HID_MAIN_ITEM_COLLECTION     0xA0
+#define HID_MAIN_ITEM_END_COLLECTION 0xC0
 
-#define HID_GLOBAL_USAGE_PAGE          0x04
-#define HID_GLOBAL_LOGICAL_MINIMUM     0x14
-#define HID_GLOBAL_LOGICAL_MAXIMUM     0x24
-#define HID_GLOBAL_REPORT_SIZE         0x74
-#define HID_GLOBAL_REPORT_ID           0x84
-#define HID_GLOBAL_REPORT_COUNT        0x94
+#define HID_GLOBAL_USAGE_PAGE      0x04
+#define HID_GLOBAL_LOGICAL_MINIMUM 0x14
+#define HID_GLOBAL_LOGICAL_MAXIMUM 0x24
+#define HID_GLOBAL_REPORT_SIZE     0x74
+#define HID_GLOBAL_REPORT_ID       0x84
+#define HID_GLOBAL_REPORT_COUNT    0x94
 
-#define HID_LOCAL_USAGE                0x08
-#define HID_LOCAL_USAGE_MINIMUM        0x18
-#define HID_LOCAL_USAGE_MAXIMUM        0x28
+#define HID_LOCAL_USAGE         0x08
+#define HID_LOCAL_USAGE_MINIMUM 0x18
+#define HID_LOCAL_USAGE_MAXIMUM 0x28
 
-#define HID_INPUT_CONSTANT             BIT(0)
+#define HID_INPUT_CONSTANT BIT(0)
 
 struct hid_parse_state {
 	uint16_t usage_page;
@@ -61,18 +60,6 @@ struct hid_parse_state {
 
 	uint16_t bit_offset[256];
 };
-
-static int16_t sign_extend_12(uint16_t v)
-{
-	/* Helper function for Logitech MX with 12-bit signed data.
-	 * If bit 11, the sign bit, is set, extend with 1s.
-	 */
-	if (v & 0x0800) {
-		v |= 0xF000;
-	}
-
-	return (int16_t)v;
-}
 
 static uint32_t mask_for_size(uint8_t bits)
 {
@@ -100,8 +87,7 @@ static int32_t sign_extend_value(uint32_t value, uint8_t bits)
 	return (int32_t)value;
 }
 
-static uint32_t get_bits(const uint8_t *buf, size_t len,
-			 uint16_t bit_offset, uint8_t bit_size)
+static uint32_t get_bits(const uint8_t *buf, size_t len, uint16_t bit_offset, uint8_t bit_size)
 {
 	uint32_t value = 0U;
 
@@ -132,13 +118,10 @@ static int32_t hid_item_value(const uint8_t *data, uint8_t size)
 	case 1:
 		return (int8_t)data[0];
 	case 2:
-		return (int16_t)((uint16_t)data[0] |
-					 ((uint16_t)data[1] << 8));
+		return (int16_t)((uint16_t)data[0] | ((uint16_t)data[1] << 8));
 	case 4:
-		return (int32_t)((uint32_t)data[0] |
-					((uint32_t)data[1] << 8) |
-					((uint32_t)data[2] << 16) |
-					((uint32_t)data[3] << 24));
+		return (int32_t)((uint32_t)data[0] | ((uint32_t)data[1] << 8) |
+				 ((uint32_t)data[2] << 16) | ((uint32_t)data[3] << 24));
 	default:
 		return 0;
 	}
@@ -154,9 +137,7 @@ static uint32_t hid_item_uvalue(const uint8_t *data, uint8_t size)
 	case 2:
 		return (uint16_t)data[0] | ((uint16_t)data[1] << 8);
 	case 4:
-		return (uint32_t)data[0] |
-		       ((uint32_t)data[1] << 8) |
-		       ((uint32_t)data[2] << 16) |
+		return (uint32_t)data[0] | ((uint32_t)data[1] << 8) | ((uint32_t)data[2] << 16) |
 		       ((uint32_t)data[3] << 24);
 	default:
 		return 0U;
@@ -178,8 +159,7 @@ static uint32_t usage_for_index(const struct hid_parse_state *st, uint8_t index)
 		return st->usages[index];
 	}
 
-	if (st->has_usage_min && st->has_usage_max &&
-	    ((st->usage_min + index) <= st->usage_max)) {
+	if (st->has_usage_min && st->has_usage_max && ((st->usage_min + index) <= st->usage_max)) {
 		return st->usage_min + index;
 	}
 
@@ -190,9 +170,7 @@ static uint32_t usage_for_index(const struct hid_parse_state *st, uint8_t index)
 	return 0U;
 }
 
-static void set_field(struct hid_mouse_field *field,
-		      uint16_t bit_offset,
-		      uint8_t bit_size,
+static void set_field(struct hid_mouse_field *field, uint16_t bit_offset, uint8_t bit_size,
 		      bool is_signed)
 {
 	if (field->valid) {
@@ -207,12 +185,11 @@ static void set_field(struct hid_mouse_field *field,
 
 static bool parser_complete(const struct hid_mouse_parser *parser)
 {
-	return parser->left_button.valid && parser->right_button.valid &&
-	       parser->x.valid && parser->y.valid;
+	return parser->left_button.valid && parser->right_button.valid && parser->x.valid &&
+	       parser->y.valid;
 }
 
-static void maybe_set_report_id(struct hid_mouse_parser *parser,
-				const struct hid_parse_state *st)
+static void maybe_set_report_id(struct hid_mouse_parser *parser, const struct hid_parse_state *st)
 {
 	if (!parser->valid) {
 		parser->has_report_id = st->has_report_id;
@@ -222,8 +199,8 @@ static void maybe_set_report_id(struct hid_mouse_parser *parser,
 
 static bool parser_has_any_field(const struct hid_mouse_parser *parser)
 {
-	return parser->left_button.valid || parser->right_button.valid ||
-	       parser->x.valid || parser->y.valid;
+	return parser->left_button.valid || parser->right_button.valid || parser->x.valid ||
+	       parser->y.valid;
 }
 
 static bool report_id_matches_parser(const struct hid_mouse_parser *parser,
@@ -233,12 +210,10 @@ static bool report_id_matches_parser(const struct hid_mouse_parser *parser,
 		return true;
 	}
 
-	return parser->has_report_id == st->has_report_id &&
-	       parser->report_id == st->report_id;
+	return parser->has_report_id == st->has_report_id && parser->report_id == st->report_id;
 }
 
-static void parse_input_item(struct hid_mouse_parser *parser,
-			     struct hid_parse_state *st,
+static void parse_input_item(struct hid_mouse_parser *parser, struct hid_parse_state *st,
 			     uint32_t input_flags)
 {
 	uint16_t *bit_offset = &st->bit_offset[st->report_id];
@@ -248,8 +223,7 @@ static void parse_input_item(struct hid_mouse_parser *parser,
 	if (!is_constant && report_id_matches_parser(parser, st)) {
 		for (uint8_t i = 0U; i < st->report_count; i++) {
 			uint32_t usage = usage_for_index(st, i);
-			uint16_t field_offset = *bit_offset +
-						 ((uint16_t)i * st->report_size);
+			uint16_t field_offset = *bit_offset + ((uint16_t)i * st->report_size);
 
 			if (st->usage_page == HID_USAGE_PAGE_BUTTON) {
 				if (usage == 1U) {
@@ -264,12 +238,12 @@ static void parse_input_item(struct hid_mouse_parser *parser,
 			} else if (st->usage_page == HID_USAGE_PAGE_GENERIC_DESKTOP) {
 				if (usage == HID_USAGE_GENERIC_X) {
 					maybe_set_report_id(parser, st);
-					set_field(&parser->x, field_offset,
-						  st->report_size, is_signed);
+					set_field(&parser->x, field_offset, st->report_size,
+						  is_signed);
 				} else if (usage == HID_USAGE_GENERIC_Y) {
 					maybe_set_report_id(parser, st);
-					set_field(&parser->y, field_offset,
-						  st->report_size, is_signed);
+					set_field(&parser->y, field_offset, st->report_size,
+						  is_signed);
 				}
 			}
 		}
@@ -279,8 +253,7 @@ static void parse_input_item(struct hid_mouse_parser *parser,
 	clear_local_items(st);
 }
 
-int hid_mouse_parser_init(struct hid_mouse_parser *parser,
-			  const uint8_t *report_map,
+int hid_mouse_parser_init(struct hid_mouse_parser *parser, const uint8_t *report_map,
 			  size_t report_map_len)
 {
 	struct hid_parse_state st;
@@ -385,32 +358,23 @@ int hid_mouse_parser_init(struct hid_mouse_parser *parser,
 	LOG_INF("Report ID      : %d", parser->report_id);
 	LOG_INF("Has Report ID  : %d", parser->has_report_id);
 
-	LOG_INF("Buttons: bit %u size %u",
-			parser->left_button.bit_offset,
-			parser->left_button.bit_size);
+	LOG_INF("Buttons: bit %u size %u", parser->left_button.bit_offset,
+		parser->left_button.bit_size);
 
-	LOG_INF("Buttons: bit %u size %u",
-			parser->right_button.bit_offset,
-			parser->right_button.bit_size);
+	LOG_INF("Buttons: bit %u size %u", parser->right_button.bit_offset,
+		parser->right_button.bit_size);
 
-	LOG_INF("X: bit %u size %u signed %d",
-			parser->x.bit_offset,
-			parser->x.bit_size,
-			parser->x.is_signed);
+	LOG_INF("X: bit %u size %u signed %d", parser->x.bit_offset, parser->x.bit_size,
+		parser->x.is_signed);
 
-	LOG_INF("Y: bit %u size %u signed %d",
-			parser->y.bit_offset,
-			parser->y.bit_size,
-			parser->y.is_signed);
+	LOG_INF("Y: bit %u size %u signed %d", parser->y.bit_offset, parser->y.bit_size,
+		parser->y.is_signed);
 
 	return 0;
 }
 
-
-int hid_mouse_decode_report(const struct hid_mouse_parser *parser,
-			    const uint8_t *data,
-			    size_t length,
-			    struct mouse_data_element *mouse_data)
+int hid_mouse_decode_report(const struct hid_mouse_parser *parser, const uint8_t *data,
+			    size_t length, struct mouse_data_element *mouse_data)
 {
 	uint32_t x_raw;
 	uint32_t y_raw;
@@ -436,12 +400,10 @@ int hid_mouse_decode_report(const struct hid_mouse_parser *parser,
 	 */
 	required_bits = MAX(parser->x.bit_offset + parser->x.bit_size,
 			    parser->y.bit_offset + parser->y.bit_size);
-	required_bits = MAX(required_bits,
-			    parser->left_button.bit_offset +
-			    parser->left_button.bit_size);
-	required_bits = MAX(required_bits,
-			    parser->right_button.bit_offset +
-			    parser->right_button.bit_size);
+	required_bits =
+		MAX(required_bits, parser->left_button.bit_offset + parser->left_button.bit_size);
+	required_bits =
+		MAX(required_bits, parser->right_button.bit_offset + parser->right_button.bit_size);
 	if (length < DIV_ROUND_UP(required_bits, 8U)) {
 		return -EMSGSIZE;
 	}
@@ -449,38 +411,28 @@ int hid_mouse_decode_report(const struct hid_mouse_parser *parser,
 	memset(mouse_data, 0, sizeof(*mouse_data));
 
 	if (parser->left_button.valid) {
-		mouse_data->left_button =
-			get_bits(data, length,
-				 parser->left_button.bit_offset,
-				 parser->left_button.bit_size) != 0U;
+		mouse_data->left_button = get_bits(data, length, parser->left_button.bit_offset,
+						   parser->left_button.bit_size) != 0U;
 	}
 
 	if (parser->right_button.valid) {
-		mouse_data->right_button =
-			get_bits(data, length,
-				 parser->right_button.bit_offset,
-				 parser->right_button.bit_size) != 0U;
+		mouse_data->right_button = get_bits(data, length, parser->right_button.bit_offset,
+						    parser->right_button.bit_size) != 0U;
 	}
 
 	if (!parser->x.valid || !parser->y.valid) {
 		return -ENODATA;
 	}
 
-	x_raw = get_bits(data, length,
-			 parser->x.bit_offset,
-			 parser->x.bit_size);
+	x_raw = get_bits(data, length, parser->x.bit_offset, parser->x.bit_size);
 
-	y_raw = get_bits(data, length,
-			 parser->y.bit_offset,
-			 parser->y.bit_size);
+	y_raw = get_bits(data, length, parser->y.bit_offset, parser->y.bit_size);
 
-	mouse_data->dx = parser->x.is_signed ?
-		(int16_t)sign_extend_value(x_raw, parser->x.bit_size) :
-		(int16_t)x_raw;
+	mouse_data->dx = parser->x.is_signed ? (int16_t)sign_extend_value(x_raw, parser->x.bit_size)
+					     : (int16_t)x_raw;
 
-	mouse_data->dy = parser->y.is_signed ?
-		(int16_t)sign_extend_value(y_raw, parser->y.bit_size) :
-		(int16_t)y_raw;
+	mouse_data->dy = parser->y.is_signed ? (int16_t)sign_extend_value(y_raw, parser->y.bit_size)
+					     : (int16_t)y_raw;
 
 	return 0;
 }

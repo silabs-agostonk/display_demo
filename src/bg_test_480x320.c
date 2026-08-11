@@ -1,14 +1,4 @@
-/*
- * Copyright (c) 2026 Silicon Laboratories Inc.
- *
- * SPDX-License-Identifier: Apache-2.0
- */
-
-#include "app_display.h"
-
-#if (DISPLAY_W == 480) && (DISPLAY_H == 320)
-
-/* GIMP RGB C-Source image dump (bg_test.c) */
+/* GIMP RGB C-Source image dump (bg_test_480x320.c) */
 
 const struct {
   unsigned int 	 width;
@@ -8619,4 +8609,3 @@ const struct {
   "\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000",
 };
 
-#endif

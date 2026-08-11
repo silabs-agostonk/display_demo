@@ -4,27 +4,24 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-
 #include "app_led.h"
 
+#include <errno.h>
 #include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
 
 #include <zephyr/device.h>
 #include <zephyr/devicetree.h>
 #include <zephyr/drivers/gpio.h>
 #include <zephyr/kernel.h>
+#include <zephyr/sys/util.h>
 
 #define LED_NODE DT_ALIAS(led0)
 
 #if !DT_NODE_EXISTS(LED_NODE)
 #error "Define devicetree alias led0"
 #endif
-
-#define BLINK_FAST_ON_MS    100
-#define BLINK_FAST_OFF_MS   100
-
-#define BLINK_SLOW_ON_MS    100
-#define BLINK_SLOW_OFF_MS   900
 
 static const struct gpio_dt_spec led = GPIO_DT_SPEC_GET(LED_NODE, gpios);
 
@@ -34,20 +31,20 @@ struct led_step {
 };
 
 static const struct led_step blink_slow_pattern[] = {
-	{ true,  100 },
-	{ false, 900 },
+	{true, 100},
+	{false, 900},
 };
 
 static const struct led_step blink_fast_pattern[] = {
-	{ true,  100 },
-	{ false, 100 },
+	{true, 100},
+	{false, 100},
 };
 
 static const struct led_step heartbeat_pattern[] = {
-	{ true,  100 },
-	{ false, 100 },
-	{ true,  100 },
-	{ false, 700 },
+	{true, 100},
+	{false, 100},
+	{true, 100},
+	{false, 700},
 };
 
 static struct k_work_delayable led_work;
@@ -58,13 +55,15 @@ static size_t active_step;
 
 static void led_work_handler(struct k_work *work)
 {
+	const struct led_step *step;
+
 	ARG_UNUSED(work);
 
 	if (active_pattern == NULL || active_pattern_len == 0) {
 		return;
 	}
 
-	const struct led_step *step = &active_pattern[active_step];
+	step = &active_pattern[active_step];
 
 	gpio_pin_set_dt(&led, step->on);
 
@@ -104,11 +103,13 @@ static void led_pattern_stop(void)
 
 int app_led_init(void)
 {
+	int ret;
+
 	if (!gpio_is_ready_dt(&led)) {
 		return -ENODEV;
 	}
 
-	int ret = gpio_pin_configure_dt(&led, GPIO_OUTPUT_INACTIVE);
+	ret = gpio_pin_configure_dt(&led, GPIO_OUTPUT_INACTIVE);
 	if (ret) {
 		return ret;
 	}
@@ -136,18 +137,15 @@ int app_led_off(void)
 
 int app_led_blink_slow(void)
 {
-	return led_pattern_start(blink_slow_pattern,
-				 ARRAY_SIZE(blink_slow_pattern));
+	return led_pattern_start(blink_slow_pattern, ARRAY_SIZE(blink_slow_pattern));
 }
 
 int app_led_blink_fast(void)
 {
-	return led_pattern_start(blink_fast_pattern,
-				 ARRAY_SIZE(blink_fast_pattern));
+	return led_pattern_start(blink_fast_pattern, ARRAY_SIZE(blink_fast_pattern));
 }
 
 int app_led_heartbeat(void)
 {
-	return led_pattern_start(heartbeat_pattern,
-				 ARRAY_SIZE(heartbeat_pattern));
+	return led_pattern_start(heartbeat_pattern, ARRAY_SIZE(heartbeat_pattern));
 }

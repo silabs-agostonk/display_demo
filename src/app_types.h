@@ -4,36 +4,38 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#ifndef APP_TYPES_H_
+#define APP_TYPES_H_
 
-#ifndef APP_TYPES_H
-#define APP_TYPES_H
+#include <stdbool.h>
+#include <stdint.h>
 
 struct int16_xy_pair {
-    int16_t x;
-    int16_t y;
+	int16_t x;
+	int16_t y;
 };
 
 struct mouse_data_element {
-    int16_t dx;
-    int16_t dy;
-    bool left_button;
-    bool right_button;
+	int16_t dx;
+	int16_t dy;
+	bool left_button;
+	bool right_button;
 };
 
-// Image struct, exported with GIMP
-typedef struct {
-  unsigned int 	 width;
-  unsigned int 	 height;
-  unsigned int 	 bytes_per_pixel; /* 2:RGB16, 3:RGB, 4:RGBA */ 
-  char         	*comment;
-  unsigned char	 pixel_data[480 * 320 * 2 + 1];
-} c_image;
+/* Common header used by the variable-sized GIMP C-source images. */
+struct c_image {
+	unsigned int width;
+	unsigned int height;
+	unsigned int bytes_per_pixel;
+	const char *comment;
+	unsigned char pixel_data[];
+};
 
-typedef enum {
-  touched_background,
-  touched_wall,
-  touched_finish_line,
-  touched_display_border
-} touch_elements_t;
+enum touch_element {
+	TOUCH_BACKGROUND,
+	TOUCH_WALL,
+	TOUCH_FINISH_LINE,
+	TOUCH_DISPLAY_BORDER,
+};
 
-#endif /* APP_TYPES_H */
+#endif /* APP_TYPES_H_ */

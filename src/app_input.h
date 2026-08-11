@@ -19,8 +19,7 @@ void app_input_init(void);
 
 int app_input_submit_mouse(const struct mouse_data_element *mouse_data);
 
-int app_input_get_mouse(struct mouse_data_element *mouse_data,
-			k_timeout_t timeout);
+int app_input_get_mouse(struct mouse_data_element *mouse_data, k_timeout_t timeout);
 
 void app_input_flush(void);
 

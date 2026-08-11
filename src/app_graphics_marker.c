@@ -4,36 +4,35 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-
 #include "app_graphics_marker.h"
 
 #if (DISPLAY_W <= 64) || (DISPLAY_H <= 64)
-// for tiny displays (radius 3)
-const struct int16_xy_pair marker_draw_buffer_segment_xy [] = {
-	{-1,-1}
+/* Tiny displays (radius 3) */
+const struct int16_xy_pair marker_draw_buffer_segment_xy[] = {
+        {-1,-1}
 };
-const struct int16_xy_pair marker_draw_buffer_segment_dimensions [] = {
-    {3,3}
+const struct int16_xy_pair marker_draw_buffer_segment_dimensions[] = {
+        {3,3}
 };
 
-const struct int16_xy_pair marker_draw_buffer_border [] = {
+const struct int16_xy_pair marker_draw_buffer_border[] = {
 	{-1,-1}, {0,-1}, {1,-1},
 	{-1,0}, {1,0},
 	{-1,1}, {0,1}, {1,1}
 };
 
 #elif (DISPLAY_W <= 128) || (DISPLAY_H <= 128)
-// for small displays (radius: 5)
-const struct int16_xy_pair marker_draw_buffer_segment_xy [] = {
+/* Small displays (radius 5) */
+const struct int16_xy_pair marker_draw_buffer_segment_xy[] = {
     {-1,-2},
     {-2,-1}
 };
-const struct int16_xy_pair marker_draw_buffer_segment_dimensions [] = {
+const struct int16_xy_pair marker_draw_buffer_segment_dimensions[] = {
     {3,5},
     {5,3}
 };
 
-const struct int16_xy_pair marker_draw_buffer_border [] = {
+const struct int16_xy_pair marker_draw_buffer_border[] = {
     {-1,-2}, {0,-2}, {1,-2},
     {-2,-1}, {2,-1},
     {-2,0}, {2,0},
@@ -42,13 +41,13 @@ const struct int16_xy_pair marker_draw_buffer_border [] = {
 };
 
 #elif (DISPLAY_W <= 320) || (DISPLAY_H <= 320)
-// for middle sized and bigger displays (radius: 9)
-const struct int16_xy_pair marker_draw_buffer_segment_xy [] = {
+/* Medium displays (radius 9) */
+const struct int16_xy_pair marker_draw_buffer_segment_xy[] = {
 	{-3,-3},
 	{-2,-4},
 	{-4,-2}
 };
-const struct int16_xy_pair marker_draw_buffer_segment_dimensions [] = {
+const struct int16_xy_pair marker_draw_buffer_segment_dimensions[] = {
 	{7,7},
 	{5,9},
 	{9,5}
@@ -66,7 +65,7 @@ const struct int16_xy_pair marker_draw_buffer_border [] = {
 };
 
 #else
-// for larger displays (radius: 11)
+/* Large displays (radius 11) */
 const struct int16_xy_pair marker_draw_buffer_segment_xy [] = {
 	{-2,-5},
 	{-3,-4},

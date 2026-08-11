@@ -7,7 +7,8 @@
 #ifndef APP_DISPLAY_H_
 #define APP_DISPLAY_H_
 
-#include <zephyr/kernel.h>
+#include <zephyr/devicetree.h>
+#include <zephyr/sys/util.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -18,9 +19,6 @@ BUILD_ASSERT(DT_NODE_HAS_STATUS(DISPLAY_NODE, okay), "zephyr,display node is not
 
 #define DISPLAY_W DT_PROP(DISPLAY_NODE, width)
 #define DISPLAY_H DT_PROP(DISPLAY_NODE, height)
-
-extern const struct device *display_dev;
-extern struct display_capabilities display_dev_capabilities;
 
 #ifdef __cplusplus
 }
